@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Virtual Print Fleet</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='11' width='24' height='13' rx='2' fill='%23e8590c'/%3E%3Crect x='9' y='4' width='14' height='8' fill='%23333'/%3E%3Crect x='9' y='20' width='14' height='8' fill='%23fff' stroke='%23333'/%3E%3C/svg%3E">
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="#/"><span class="logo"></span>Virtual Print Fleet<small>Simulation</small></a>
+    <nav>
+      <a href="#/">Maschinenpark</a>
+      <a href="#/jobs">Alle Jobs</a>
+      <a href="#/media">Materialkatalog</a>
+      <a href="#/log">Ereignisse</a>
+    </nav>
+    <div class="top-right">
+      <label class="tf">Zeitraffer
+        <select id="timeFactor">
+          <option value="0">sofort</option>
+          <option value="1">Echtzeit</option>
+          <option value="5">5×</option>
+          <option value="20">20×</option>
+          <option value="100">100×</option>
+        </select>
+      </label>
+      <button class="ghost" id="btnSettings" title="Einstellungen">Einstellungen</button>
+      <span id="live" class="live" title="Live-Verbindung">●</span>
+    </div>
+  </header>
+  <div class="shell">
+    <aside id="side"></aside>
+    <main id="main"></main>
+  </div>
+  <dialog id="dlg"></dialog>
+  <div id="toast"></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

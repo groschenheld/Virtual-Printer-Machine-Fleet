@@ -1,0 +1,83 @@
+{
+  "name": "virtual-print-fleet",
+  "productName": "Virtual Print Fleet",
+  "version": "0.1.0",
+  "description": "Virtueller Druckmaschinenpark (Canon, Xerox, Epson, Roland) mit Front-End-Simulation (Fiery, PRISMAsync, FreeFlow, Publisher, Edge Print, VersaWorks) zum Testen von Druck-Apps.",
+  "main": "electron/main.js",
+  "bin": {
+    "vpf": "src/cli.js"
+  },
+  "scripts": {
+    "start": "node src/cli.js",
+    "app": "electron .",
+    "test": "node --test",
+    "samples": "node tools/make-samples.js",
+    "dist:linux": "electron-builder --linux AppImage",
+    "dist:win": "electron-builder --win nsis portable",
+    "dist": "electron-builder"
+  },
+  "keywords": [
+    "printing",
+    "simulator",
+    "ipp",
+    "lpr",
+    "jdf",
+    "jmf",
+    "fiery",
+    "prismasync",
+    "versaworks",
+    "test"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": ">=4.10.38"
+  },
+  "devDependencies": {
+    "electron": "^38.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "io.github.virtualprintfleet",
+    "productName": "Virtual Print Fleet",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**",
+      "src/**",
+      "ui/**",
+      "build/icon.png",
+      "package.json"
+    ],
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Utility",
+      "icon": "build/icon.png"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.${ext}"
+    },
+    "extraMetadata": {
+      "main": "electron/main.js"
+    }
+  },
+  "author": "Virtual Print Fleet contributors"
+}
