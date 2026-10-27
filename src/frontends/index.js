@@ -145,4 +145,13 @@ function queuesOf(device) {
   return out;
 }
 
-module.exports = { FRONTENDS, frontendOf, queuesOf };
+const MODULE_DE = { stapler: 'Hefter', puncher: 'Locher', booklet: 'Broschürenmodul', folder: 'Falzeinheit', stacker: 'Hochstapler/Ablage', cutter: 'Querschneider', wfFolder: 'Online-Faltmaschine', takeUp: 'Aufwickler', contourCutter: 'Konturschneider', backprint: 'Rückseitendruck', sorter: 'Sortierer' };
+
+/** Nur die als „installiert" konfigurierten Finisher-Module (Installierbare Optionen am Druckserver). */
+function installedModules(cfg) {
+  const out = {};
+  for (const [k, v] of Object.entries(cfg.finisher?.modules || {})) if (v && v.installed !== false) out[k] = v;
+  return out;
+}
+
+module.exports = { FRONTENDS, frontendOf, queuesOf, installedModules, MODULE_DE };

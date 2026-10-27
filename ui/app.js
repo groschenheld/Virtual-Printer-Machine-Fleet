@@ -184,7 +184,7 @@ async function renderDevice(id, soft) {
   let h = `<div class="row"><div><h1>${esc(d.name)} <span class="badge fe">${esc(d.frontend.label)}</span></h1>
     <div class="sub">${esc(d.vendor)} ${esc(d.model)} · ${esc(d.frontend.product)} · <span class="st ${d.status.state}">${esc(d.status.stateDe)}</span> <span class="mono">${esc(d.status.reasons.join(', '))}</span>${d.status.message && d.status.message !== d.status.stateDe ? ' – ' + esc(d.status.message) : ''}</div></div></div>
     <div class="row" style="margin-top:10px"><span class="sub">Störung simulieren:</span><div class="err-toggles">${errBtns.map(([k, t]) => `<button class="small ${d.errors[k] ? 'on' : ''}" data-err="${k}">${t}${d.errors[k] ? ' ✕' : ''}</button>`).join('')}</div>
-    <span class="spacer"></span><button class="small" id="refill">Verbrauchsmaterial auffüllen</button></div>`;
+    <span class="spacer"></span><a class="small" href="http://${esc(d.host === '0.0.0.0' ? '127.0.0.1' : d.host)}:${d.ports.http}/" target="_blank"><button class="small">Druckserver-Webseite (${esc(d.frontend.label)}) ↗</button></a><a href="/api/devices/${d.id}/driver.ppd"><button class="small">Treiber (PPD)</button></a><button class="small" id="refill">Verbrauchsmaterial auffüllen</button></div>`;
   const ifErr = Object.entries(d.ifaces || {}).filter(([, v]) => v && v.error);
   if (ifErr.length) h += `<div class="note err" style="margin-top:10px">Schnittstellen-Fehler: ${ifErr.map(([k, v]) => `${k.toUpperCase()}: ${esc(v.error)}`).join(' · ')}</div>`;
   h += `<div class="tabs">${[['jobs', 'Jobs'], ['media', 'Material laden'], ['finisher', 'Finisher & Verbrauch'], ['frontend', 'Front-End & Schnittstellen'], ['traffic', 'Schnittstellen-Mitschnitt']].map(([k, t]) => `<button data-tab="${k}" class="${tab === k ? 'act' : ''}">${t}</button>`).join('')}</div><div id="tabbody"></div>`;
@@ -217,10 +217,10 @@ function deviceJobs(d, body) {
       <label>Exemplare<input type="number" id="tcopies" value="1" min="1"></label>
       ${d.kind === 'sheet' ? `<label>Seiten<select id="tsides"><option value="">wie Preset</option><option value="one-sided">einseitig</option><option value="two-sided-long-edge">duplex lange Kante</option><option value="two-sided-short-edge">duplex kurze Kante</option></select></label>
       <label>Ausschießen<select id="timp"><option value="">wie Preset</option><option value="none">normal</option><option value="n-up">2-up</option><option value="booklet">Broschüre</option><option value="step-repeat">Step &amp; Repeat</option></select></label>
-      <label>Heften<select id="tstaple"><option value="">—</option>${(d.finisher.modules.stapler?.positions || []).map((p) => `<option>${p}</option>`).join('')}</select></label>
-      <label>Lochen<select id="tpunch"><option value="">—</option>${(d.finisher.modules.puncher?.holes || []).map((p) => `<option>${p}</option>`).join('')}</select></label>
-      <label>Falzen<select id="tfold"><option value="">—</option>${(d.finisher.modules.folder?.types || []).map((p) => `<option>${p}</option>`).join('')}</select></label>` : ''}
-      ${d.kind === 'wide' ? `<label>Falten<select id="tfold"><option value="">—</option>${(d.finisher.modules.wfFolder?.forms || []).map((p) => `<option>${p}</option>`).join('')}</select></label>
+      <label>Heften<select id="tstaple"><option value="">—</option>${(d.finisherInstalled.stapler?.positions || []).map((p) => `<option>${p}</option>`).join('')}</select></label>
+      <label>Lochen<select id="tpunch"><option value="">—</option>${(d.finisherInstalled.puncher?.holes || []).map((p) => `<option>${p}</option>`).join('')}</select></label>
+      <label>Falzen<select id="tfold"><option value="">—</option>${(d.finisherInstalled.folder?.types || []).map((p) => `<option>${p}</option>`).join('')}</select></label>` : ''}
+      ${d.kind === 'wide' ? `<label>Falten<select id="tfold"><option value="">—</option>${(d.finisherInstalled.wfFolder?.forms || []).map((p) => `<option>${p}</option>`).join('')}</select></label>
       <label class="chk"><input type="checkbox" id="tnest"> Nesting</label><label class="chk"><input type="checkbox" id="ttile"> Kacheln wenn zu breit</label><label class="chk"><input type="checkbox" id="tmarg"> Ränder hinzufügen</label>` : ''}
       ${d.kind === 'photo' ? `<label>Printgröße<select id="tphoto"><option value="">wie Preset/Bild</option><option>89x127</option><option>102x152</option><option>127x178</option><option>152x203</option><option>203x254</option><option>203x305</option><option>210x297</option></select></label><label>Einpassen<select id="tfit"><option value="fill">füllen (beschneiden)</option><option value="fit">einpassen (Rand)</option></select></label><label>Rückseitendruck<input type="text" id="tback" placeholder="z. B. Auftrag 4711 / Bild {n}"></label>` : ''}
       ${d.kind === 'printcut' ? `<label>Schneiden<select id="tcut"><option value="">wie Preset</option><option value="contour">CutContour</option><option value="trimbox">an TrimBox</option><option value="none">nur Drucken</option><option value="cut-only">nur Schneiden</option></select></label>` : ''}
@@ -307,7 +307,12 @@ function deviceFinisher(d, body) {
 function deviceFrontend(d, body) {
   const ep = d.endpoints;
   const copy = (t) => `<button class="small" data-copy="${esc(t)}">kopieren</button>`;
-  let h = `<div class="grid" style="grid-template-columns:1fr 1fr;align-items:start"><div class="card"><b>So spricht die Drucker-App dieses Gerät an</b>
+  const MODDE = { stapler: 'Hefter', puncher: 'Locher', booklet: 'Broschürenmodul', folder: 'Falzeinheit', stacker: 'Hochstapler/Ablage', cutter: 'Querschneider', wfFolder: 'Online-Faltmaschine', takeUp: 'Aufwickler', contourCutter: 'Konturschneider', backprint: 'Rückseitendruck', sorter: 'Sortierer' };
+  const srvUrl = `http://${d.host === '0.0.0.0' ? '127.0.0.1' : d.host}:${d.ports.http}/`;
+  let h = `<div class="card" style="margin-bottom:12px"><div class="row"><b>Druckserver: ${esc(d.frontend.product)}</b><span class="badge fe">${esc(d.frontend.label)}</span><span class="spacer"></span><a href="${esc(srvUrl)}" target="_blank">Webseite des Druckservers ↗</a> · <a href="${esc(srvUrl)}driver" target="_blank">Treiber &amp; Software ↗</a> · <a href="/api/devices/${d.id}/driver.ppd">PPD herunterladen</a></div>
+    <div class="sub" style="margin:6px 0 8px">Installierbare Optionen – welche Finisher-Module am Gerät hängen. Gilt für Verarbeitung, IPP-Fähigkeiten, Bonjour und den erzeugten Treiber. Nach Änderungen „Systemdrucker aktualisieren" (Maschinenpark-Seite), damit der Systemtreiber passt.</div>
+    <div class="row">${Object.entries(d.finisher?.modules || {}).map(([k, m]) => `<label class="chk"><input type="checkbox" data-mod="${k}" ${m.installed !== false ? 'checked' : ''}> ${esc(MODDE[k] || k)}</label>`).join('')}</div></div>
+    <div class="grid" style="grid-template-columns:1fr 1fr;align-items:start"><div class="card"><b>So spricht die Drucker-App dieses Gerät an</b>
     <div style="margin-top:8px">
     <div class="endpoint"><span class="k">IPP (Standard)</span><code>${esc(ep.ipp)}</code>${copy(ep.ipp)}</div>
     ${ep.ippQueues.map((u, i) => `<div class="endpoint"><span class="k">IPP „${esc(d.queues[i].name)}"</span><code>${esc(u)}</code>${copy(u)}</div>`).join('')}
@@ -334,6 +339,11 @@ function deviceFrontend(d, body) {
     <div class="sub">Format: <code>[{"name":"Broschuere","mode":"print|hold","ticket":{"imposition":"booklet", "copies":2, "media":{"mediaId":"..."}, "finishing":{"staple":"top-left"}}}]</code></div>`;
   body.innerHTML = h;
   $$('[data-copy]', body).forEach((b) => b.onclick = () => { navigator.clipboard?.writeText(b.dataset.copy); toast('Kopiert'); });
+  $$('[data-mod]', body).forEach((cb) => cb.onchange = () => {
+    const fin = JSON.parse(JSON.stringify(d.finisher));
+    fin.modules[cb.dataset.mod].installed = cb.checked;
+    act(() => api(`/api/devices/${d.id}`, { method: 'PUT', json: { finisher: fin } }).then(loadState), `${MODDE[cb.dataset.mod] || cb.dataset.mod}: ${cb.checked ? 'installiert' : 'nicht installiert'}`);
+  });
   $('#fsave').onclick = () => {
     let presets;
     try { presets = JSON.parse($('#fpresets').value); } catch (e) { return toast('Presets: ungültiges JSON', true); }

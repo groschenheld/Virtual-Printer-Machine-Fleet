@@ -147,6 +147,14 @@ vpf drucker-befehle                    # nur die lpadmin-Befehle anzeigen
 
 Unter Windows legt `vpf drucker-einrichten` (PowerShell als Administrator) je Gerät einen TCP/IP-Port und einen Drucker mit dem „Microsoft PS Class Driver“ an – dafür braucht die Simulation Ghostscript (PostScript-Eingang).
 
+### Druckserver, Treiber und Installierbare Optionen
+
+Jedes Gerät hat – wie in echt – einen vorgeschalteten Druckserver mit eigener Webseite unter `http://<host>:<http-port>/` (z. B. `http://127.0.0.1:6310/` für den Fiery der imagePRESS): **Fiery WebTools**, **PRISMAsync Fernzugriff**, **FreeFlow-Weboberfläche**, **ClearConnect/WebTools Express**, Edge Print, Order Controller bzw. VersaWorks (jeweils als Simulation). Dort gibt es Status, Aufträge (drucken/halten/abbrechen), **Konfiguration** mit den **Installierbaren Optionen** (welche Finisher-Module angeschlossen sind), Fachzuordnung und Verhalten bei Material-/Finishing-Konflikten sowie **Treiber & Software**. Auf diese Seite zeigen auch `printer-more-info` (IPP) und `adminurl` (Bonjour) – also der Knopf „Webseite des Druckers“ in den Systemeinstellungen.
+
+`vpf drucker-einrichten` legt die Systemdrucker mit einem je Gerät erzeugten **PPD-Treiber** an (statt CUPS den Treiber selbst ableiten zu lassen): mit Papierfächern bzw. Rollen, Materialarten, Ablagen, Duplex, Heften/Lochen/Falzen/Broschüre bzw. DIN-824-Faltung und den Installierbaren Optionen – inkl. Sperren, wenn ein Modul nicht installiert ist. Die Auswahl im Druckdialog kommt als IPP-Attribut (`finishings`, `media-col`, `output-bin`, `sides`) bei der Simulation an und steht im Protokoll. Treiber einzeln: `vpf drucker-treiber ipv1350` oder Download auf der Druckserver-Seite. `--driverless` nutzt stattdessen CUPS „everywhere“.
+
+Werden Installierbare Optionen geändert, danach „Systemdrucker aktualisieren“ (bzw. erneut `vpf drucker-einrichten`), damit der Systemtreiber dieselben Module anbietet.
+
 ### Adressen
 
 Jedes Gerät hat eigene Ports (Standard: HTTP `6310+n`, LPD `5150+n`, Socket `9100+n`; `n` = Position im Maschinenpark). Die genauen Adressen stehen in der Oberfläche unter **Front-End & Schnittstellen** und beim Start in der Konsole.

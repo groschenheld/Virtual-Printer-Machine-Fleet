@@ -41,7 +41,7 @@ function pwgName(wMm, hMm) {
   if (n === 'B3' || n === 'B4' || n === 'B5') return `iso_${n.toLowerCase()}_${a}x${b}mm`;
   if (n === 'LETTER') return 'na_letter_8.5x11in';
   if (n === 'LEGAL') return 'na_legal_8.5x14in';
-  return `custom_${a}x${b}mm`;
+  return `custom_${a}x${b}_${a}x${b}mm`; // PWG verlangt Klasse_Name_Maß
 }
 
 function baseTicket() {

@@ -98,9 +98,10 @@ function din824(form, W, H) {
  */
 function applyFinishing(ctx, layout) {
   const { job, device, catalog, ticket } = ctx;
-  const mods = device.finisher?.modules || {};
+  const mods = require('../frontends').installedModules(device);
   const fin = ticket.finishing || {};
   const conflicts = [];
+  const off = (k) => (device.finisher?.modules?.[k] && device.finisher.modules[k].installed === false ? ' (Modul ist am Druckserver unter „Installierbare Optionen" als nicht installiert eingestellt)' : '');
   const media = layout.media ? catalog.get(layout.media) : null;
   const summary = [];
 
@@ -111,7 +112,7 @@ function applyFinishing(ctx, layout) {
     if (layout.mode === 'booklet') {
       const b = mods.booklet;
       const want = fin.booklet || { saddle: true };
-      if (!b) conflicts.push('Kein Broschürenmodul am Finisher – Bogen werden nur ausgeschossen, nicht gefalzt/geheftet');
+      if (!b) conflicts.push('Kein Broschürenmodul am Finisher – Bogen werden nur ausgeschossen, nicht gefalzt/geheftet' + off('booklet'));
       else {
         if (sheetsPerSet > b.maxSheets) conflicts.push(`Broschüre mit ${sheetsPerSet} Bogen überschreitet Maximum des Broschürenmoduls (${b.maxSheets} Bogen)`);
         const trimMm = want.trimMm ?? fin.trimMm ?? (b.trim ? 5 : 0);
@@ -140,7 +141,7 @@ function applyFinishing(ctx, layout) {
     // --- Heften
     if (fin.staple && fin.staple !== 'saddle') {
       const st = mods.stapler;
-      if (!st) conflicts.push('Heftung angefordert, aber kein Hefter am Finisher');
+      if (!st) conflicts.push('Heftung angefordert, aber kein Hefter am Finisher' + off('stapler'));
       else if (st.positions && !st.positions.includes(fin.staple)) conflicts.push(`Heftposition „${STAPLE_DE[fin.staple] || fin.staple}" nicht unterstützt (möglich: ${st.positions.map((p) => STAPLE_DE[p] || p).join(', ')})`);
       else if (sheetsPerSet > st.maxSheets) conflicts.push(`Heftung: ${sheetsPerSet} Bogen > maximal ${st.maxSheets} Bogen`);
       else if (layout.mode === 'step-repeat') conflicts.push('Heftung bei Step & Repeat nicht sinnvoll');
@@ -157,7 +158,7 @@ function applyFinishing(ctx, layout) {
       const pu = mods.puncher;
       const holes = fin.punch.holes || 2;
       const edge = fin.punch.edge || 'left';
-      if (!pu) conflicts.push('Lochung angefordert, aber kein Locher am Finisher');
+      if (!pu) conflicts.push('Lochung angefordert, aber kein Locher am Finisher' + off('puncher'));
       else if (!pu.holes.includes(holes)) conflicts.push(`${holes}-fach-Lochung nicht unterstützt (möglich: ${pu.holes.join('/')})`);
       else if (media && pu.maxGsm && media.gsm > pu.maxGsm) conflicts.push(`Lochung bei ${media.gsm} g/m² nicht möglich (max. ${pu.maxGsm} g/m²)`);
       else {
@@ -171,7 +172,7 @@ function applyFinishing(ctx, layout) {
     // --- Falzen (Einzelbogen)
     if (fin.fold && layout.mode !== 'booklet') {
       const fo = mods.folder;
-      if (!fo) conflicts.push(`Falzung (${FOLD_DE[fin.fold] || fin.fold}) angefordert, aber keine Falzeinheit`);
+      if (!fo) conflicts.push(`Falzung (${FOLD_DE[fin.fold] || fin.fold}) angefordert, aber keine Falzeinheit` + off('folder'));
       else if (!fo.types.includes(fin.fold)) conflicts.push(`Falzart ${FOLD_DE[fin.fold] || fin.fold} nicht unterstützt (möglich: ${fo.types.map((t) => FOLD_DE[t] || t).join(', ')})`);
       else if (media && fo.maxGsm && media.gsm > fo.maxGsm) conflicts.push(`Falzen bei ${media.gsm} g/m² nicht möglich (max. ${fo.maxGsm} g/m²)`);
       else {
@@ -199,7 +200,7 @@ function applyFinishing(ctx, layout) {
   if (layout.kind === 'wide') {
     if (fin.fold) {
       const wf = mods.wfFolder;
-      if (!wf) conflicts.push('Faltung angefordert, aber keine Online-Faltmaschine angeschlossen');
+      if (!wf) conflicts.push('Faltung angefordert, aber keine Online-Faltmaschine angeschlossen' + off('wfFolder'));
       else if (!wf.forms.includes(fin.fold)) conflicts.push(`Faltform ${FOLD_DE[fin.fold] || fin.fold} nicht unterstützt (möglich: ${wf.forms.map((t) => FOLD_DE[t] || t).join(', ')})`);
       else {
         let folded = 0;

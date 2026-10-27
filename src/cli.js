@@ -25,7 +25,10 @@ Befehle:
   vpf drucker-einrichten [--alle-queues] [--raw]
                     alle Geräte als Systemdrucker eintragen (CUPS bzw. Windows), damit sie
                     in Druckdialogen und Apps erscheinen. --alle-queues: auch hold/Presets
-                    als eigene Drucker, --raw: Daten unverändert durchreichen (ohne Treiber)
+                    als eigene Drucker, --raw: ohne Treiber, --driverless: CUPS-Treiber
+                    aus IPP statt des mitgelieferten PPD (Standard: PPD mit Installierbaren Optionen)
+  vpf drucker-treiber <gerät> [datei]
+                    PPD-Treiber eines Geräts speichern (z. B. für ein anderes System)
   vpf drucker-entfernen
                     alle von Virtual Print Fleet eingetragenen Systemdrucker entfernen
   vpf drucker-befehle
@@ -41,10 +44,14 @@ async function withFleet(fn) {
   const port = arg('--port') ? Number(arg('--port')) : 8650;
   try {
     const r = await fetch(`http://127.0.0.1:${port}/api/state`);
-    if (r.ok) return fn(await r.json(), true);
+    if (r.ok) {
+      const getPpd = async (id) => Buffer.from(await (await fetch(`http://127.0.0.1:${port}/api/devices/${encodeURIComponent(id)}/driver.ppd`)).arrayBuffer());
+      return fn(await r.json(), true, getPpd);
+    }
   } catch { /* läuft nicht */ }
   const app = await startServer({ port, dataDir: arg('--data'), bindHost: arg('--bind'), mdns: false });
-  try { return await fn(app.fleet.summary(), false); } finally {
+  const { generatePpd } = require('./system/ppd');
+  try { return await fn(app.fleet.summary(), false, async (id) => generatePpd(app.fleet, app.fleet.device(id))); } finally {
     await app.close();
     // Unter sudo gestartet: Daten wieder dem eigentlichen Benutzer geben
     if (process.getuid && process.getuid() === 0 && process.env.SUDO_USER) {
@@ -58,10 +65,18 @@ async function command() {
   if (CMD === 'drucker-befehle') {
     await withFleet((s) => console.log(sp.manualCommands(s, { allQueues: flag('--alle-queues') })));
   } else if (CMD === 'drucker-einrichten') {
-    await withFleet(async (s, running) => {
+    await withFleet(async (s, running, getPpd) => {
       console.log(`Richte ${s.devices.filter((d) => d.enabled).length} Geräte als Systemdrucker ein${running ? '' : ' (Simulation dafür kurz gestartet)'} …`);
-      const r = await sp.installSystemPrinters(s, { allQueues: flag('--alle-queues'), raw: flag('--raw') });
+      const r = await sp.installSystemPrinters(s, { allQueues: flag('--alle-queues'), raw: flag('--raw'), driverless: flag('--driverless'), getPpd });
       console.log(`\nFertig${r ? `: ${r.ok} eingerichtet${r.failed ? `, ${r.failed} fehlgeschlagen` : ''}` : ''}. Die Simulation muss laufen (vpf bzw. Dienst), damit Druckjobs ankommen.`);
+    });
+  } else if (CMD === 'drucker-treiber') {
+    const id = process.argv[3];
+    if (!id) throw new Error('Gerät angeben, z. B.: vpf drucker-treiber ipv1350');
+    await withFleet(async (s, running, getPpd) => {
+      const out = process.argv[4] && !process.argv[4].startsWith('--') ? process.argv[4] : `VPF-${id}.ppd`;
+      require('fs').writeFileSync(out, await getPpd(id));
+      console.log(`✔ ${out}`);
     });
   } else if (CMD === 'drucker-entfernen') {
     const n = await sp.removeSystemPrinters();

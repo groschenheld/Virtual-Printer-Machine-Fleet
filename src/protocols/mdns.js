@@ -112,9 +112,9 @@ class MdnsResponder {
       const s = f.deviceSummary(d);
       const inst = `${c.name} (VPF)`.replace(/\./g, '\\.');
       const uuid = (() => { const h = crypto.createHash('sha1').update('vpf-' + c.id).digest('hex'); return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-a${h.slice(17, 20)}-${h.slice(20, 32)}`; })();
-      const mods = c.finisher?.modules || {};
+      const mods = require('../frontends').installedModules(c);
       const kind = { sheet: 'document', wide: 'document,large-format,roll', photo: 'photo,roll', printcut: 'large-format,roll,label' }[c.kind];
-      const common = { txtvers: 1, qtotal: 1, ty: `${c.vendor} ${c.model}`, product: `(${c.model})`, note: 'Virtual Print Fleet (Simulation)', priority: 50, usb_MFG: c.vendor, usb_MDL: c.model, UUID: uuid, adminurl: `${f.uiUrl}/#/device/${c.id}` };
+      const common = { txtvers: 1, qtotal: 1, ty: `${c.vendor} ${c.model}`, product: `(${c.model})`, note: 'Virtual Print Fleet (Simulation)', priority: 50, usb_MFG: c.vendor, usb_MDL: c.model, UUID: uuid, adminurl: `http://${ips[0]}:${c.ports.http}/` };
       const add = (svc, port, extra) => {
         const type = `${svc}.local`;
         const name = `${inst}.${type}`;

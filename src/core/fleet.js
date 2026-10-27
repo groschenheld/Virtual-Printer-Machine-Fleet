@@ -234,7 +234,7 @@ class Fleet extends EventEmitter {
       status: d.status, errors: d.errors,
       color: c.color, duplex: c.duplex, speed: c.speed, marginsMm: c.marginsMm, sheet: c.sheet || null, roll: c.roll || null,
       slots: c.slots.map((s) => ({ ...s, media: s.loaded ? this.catalog.get(s.loaded.mediaId) || null : null })),
-      finisher: c.finisher, supplies: c.supplies, presets: c.presets || [], settings: c.settings,
+      finisher: c.finisher, finisherInstalled: require('../frontends').installedModules(c), supplies: c.supplies, presets: c.presets || [], settings: c.settings,
       queues: d.queues.map((q) => ({ name: q.name, mode: q.mode, info: q.info, ticket: q.ticket, hotfolder: path.join(this.store.hotDir, c.id, safeName(q.name)) })),
       ports: c.ports, host: shownHost,
       endpoints: {

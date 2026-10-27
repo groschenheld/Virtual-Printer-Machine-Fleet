@@ -8,8 +8,10 @@ const run = (cmd, args, opts = {}) => new Promise((resolve) => {
 });
 
 const PREFIX = 'VPF_';
-const cupsName = (dev, queue) => (PREFIX + dev.name + (queue ? '_' + queue : '')).replace(/[^A-Za-z0-9_-]+/g, '_').replace(/_+/g, '_').replace(/_$/, '').slice(0, 127);
-const winName = (dev, queue) => `${dev.name}${queue ? ' – ' + queue : ''} (VPF)`;
+const FE_SHORT = { fiery: 'Fiery', prismasync: 'PRISMAsync', ffps: 'FreeFlow', publisher: 'ClearConnect', edgeprint: 'EdgePrint', driver: '', ordercontroller: 'OrderController', versaworks: 'VersaWorks' };
+const feShort = (dev) => FE_SHORT[dev.frontend?.type] ?? '';
+const cupsName = (dev, queue) => (PREFIX + [feShort(dev), dev.name, queue].filter(Boolean).join('_')).replace(/[^A-Za-z0-9_-]+/g, '_').replace(/_+/g, '_').replace(/_$/, '').slice(0, 127);
+const winName = (dev, queue) => `${FE_SHORT[dev.frontend?.type] ? FE_SHORT[dev.frontend.type] + ' – ' : ''}${dev.name}${queue ? ' – ' + queue : ''} (VPF)`;
 
 function targets(summary, allQueues) {
   const out = [];
@@ -22,15 +24,31 @@ function targets(summary, allQueues) {
 }
 
 // ------------------------------------------------------------------ CUPS
-async function cupsInstall(summary, { allQueues = false, raw = false, log = console.log } = {}) {
+async function cupsInstall(summary, { allQueues = false, raw = false, driverless = false, getPpd = null, log = console.log } = {}) {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vpf-ppd-'));
   const has = await run('lpadmin', ['-h']).then((r) => r.code !== 'ENOENT');
   if (!has) throw new Error('lpadmin nicht gefunden – CUPS ist nicht installiert (Debian/Ubuntu: sudo apt install cups).');
   let ok = 0, failed = 0;
   for (const t of targets(summary, allQueues)) {
     const name = cupsName(t.dev, t.queue);
-    const base = ['-p', name, '-E', '-v', t.uri, '-D', `${t.dev.name}${t.queue ? ' / ' + t.queue : ''} (Virtual Print Fleet)`, '-L', 'Virtual Print Fleet (Simulation)', '-o', 'printer-is-shared=false'];
-    let r = raw ? { ok: false } : await run('lpadmin', [...base, '-m', 'everywhere']);
-    let model = 'everywhere (driverless)';
+    const base = ['-p', name, '-E', '-v', t.uri, '-D', `${t.dev.frontend?.product ? t.dev.frontend.product + ' – ' : ''}${t.dev.name}${t.queue ? ' / ' + t.queue : ''} (Virtual Print Fleet)`, '-L', 'Virtual Print Fleet (Simulation)', '-o', 'printer-is-shared=false'];
+    let r = { ok: false };
+    let model = '';
+    if (!raw && !driverless && getPpd) {
+      const ppdFile = path.join(tmp, `${t.dev.id}.ppd`);
+      fs.writeFileSync(ppdFile, await getPpd(t.dev.id));
+      r = await run('lpadmin', [...base, '-P', ppdFile]);
+      model = 'PPD-Treiber mit Installierbaren Optionen';
+    }
+    if (!r.ok && !raw) {
+      if (r.err && /forbidden|not authorized|nicht berechtigt|Zugriff verweigert/i.test(r.err)) throw new Error(`Keine Berechtigung für lpadmin. Mit sudo ausführen oder den Benutzer in die Gruppe „lpadmin" aufnehmen (sudo usermod -aG lpadmin $USER).`);
+      if (model) log(`  ! ${name}: PPD abgelehnt (${r.err.trim().split('\n')[0]}) – versuche driverless`);
+      r = await run('lpadmin', [...base, '-m', 'everywhere']);
+      model = 'everywhere (driverless)';
+    }
     if (!r.ok) {
       if (!raw && /forbidden|not authorized|nicht berechtigt|Zugriff verweigert/i.test(r.err)) throw new Error(`Keine Berechtigung für lpadmin. Mit sudo ausführen oder den Benutzer in die Gruppe „lpadmin" aufnehmen (sudo usermod -aG lpadmin $USER).`);
       r = await run('lpadmin', [...base, '-m', 'raw']);
@@ -39,6 +57,7 @@ async function cupsInstall(summary, { allQueues = false, raw = false, log = cons
     if (r.ok) { ok++; log(`  ✔ ${name.padEnd(48)} ${t.uri}  [${model}]`); }
     else { failed++; log(`  ✘ ${name}: ${r.err.trim()}`); if (/forbidden|not authorized/i.test(r.err)) throw new Error('Keine Berechtigung für lpadmin – mit sudo ausführen.'); }
   }
+  fs.rmSync(tmp, { recursive: true, force: true });
   return { ok, failed };
 }
 
@@ -96,7 +115,7 @@ async function removeSystemPrinters(opts = {}) {
 }
 function manualCommands(summary, opts = {}) {
   if (process.platform === 'win32') return windowsScript(summary, opts);
-  return targets(summary, opts.allQueues).map((t) => `lpadmin -p ${cupsName(t.dev, t.queue)} -E -v ${t.uri} -m everywhere -D "${t.dev.name}${t.queue ? ' / ' + t.queue : ''} (Virtual Print Fleet)"`).join('\n');
+  return targets(summary, opts.allQueues).map((t) => `curl -s -o /tmp/${t.dev.id}.ppd http://127.0.0.1:${opts.uiPort || 8650}/api/devices/${t.dev.id}/driver.ppd && \\\n  lpadmin -p ${cupsName(t.dev, t.queue)} -E -v ${t.uri} -P /tmp/${t.dev.id}.ppd -D "${t.dev.name}${t.queue ? ' / ' + t.queue : ''} (Virtual Print Fleet)"`).join('\n');
 }
 
 module.exports = { installSystemPrinters, removeSystemPrinters, manualCommands, cupsList, cupsName };

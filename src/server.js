@@ -14,7 +14,9 @@ const { startLpd, listen } = require('./protocols/lpd');
 const { startRaw } = require('./protocols/raw');
 const { HotFolders } = require('./protocols/hotfolder');
 const { MdnsResponder } = require('./protocols/mdns');
+const { handleWebtools } = require('./protocols/webtools');
 const { installSystemPrinters, removeSystemPrinters, manualCommands, cupsList } = require('./system/printers');
+const { generatePpd } = require('./system/ppd');
 const { applyObject } = require('./pipeline/ticket');
 const { frontendOf } = require('./frontends');
 const { clone } = require('./util/misc');
@@ -44,14 +46,15 @@ async function startDeviceInterfaces(fleet, dev) {
         const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await readBody(req) : Buffer.alloc(0);
         return handleFieryApi(fleet, dev, req, res, body, p, url.searchParams);
       }
+      if (req.method === 'GET' || (req.method === 'POST' && (p === '/config' || p.startsWith('/jobs/')) && /form-urlencoded/.test(ct))) {
+        const body = req.method === 'POST' ? await readBody(req, 1024 * 1024) : Buffer.alloc(0);
+        if (await handleWebtools(fleet, dev, req, res, p, body)) return;
+        return sendText(res, 404, 'Nicht gefunden');
+      }
       if (req.method === 'POST' && (p === '/jmf' || p.startsWith('/jmf/') || p === '/' || /cip4|jmf|jdf|multipart\/related/.test(ct))) {
         const body = await readBody(req);
         const r = await handleJmf(fleet, dev, req, body);
         return sendText(res, r.status, r.xml, 'application/vnd.cip4-jmf+xml; charset=utf-8');
-      }
-      if (req.method === 'GET') {
-        const s = dev.status;
-        return sendText(res, 200, `<!doctype html><meta charset="utf-8"><title>${c.name}</title><body style="font-family:sans-serif;padding:2em"><h1>${c.name}</h1><p>${c.frontend.product} – Simulation</p><p>Status: <b>${s.stateDe}</b> (${s.reasons.join(', ')})</p><p>IPP: ipp://${req.headers.host}/ipp/print<br>JMF: http://${req.headers.host}/jmf</p><p><a href="${fleet.uiUrl}/#/device/${c.id}">Zur Oberfläche</a></p>`, 'text/html; charset=utf-8');
       }
       sendText(res, 405, 'Methode nicht unterstützt');
     } catch (e) {
@@ -84,6 +87,10 @@ function buildApi(fleet, ctl) {
   r.add('GET', '/api/state', (req, res) => sendJson(res, 200, fleet.summary()));
   r.add('GET', '/api/log', (req, res) => sendJson(res, 200, fleet.globalLog.slice(-500)));
   r.add('GET', '/api/devices/:id', (req, res, p) => sendJson(res, 200, fleet.deviceSummary(fleet.device(p.id))));
+  r.add('GET', '/api/devices/:id/driver.ppd', (req, res, p) => {
+    const dev = fleet.device(p.id);
+    sendText(res, 200, generatePpd(fleet, dev), 'application/vnd.cups-ppd', { 'Content-Disposition': `attachment; filename="VPF-${dev.id}.ppd"` });
+  });
   r.add('GET', '/api/devices/:id/traffic', (req, res, p) => sendJson(res, 200, fleet.device(p.id).traffic.slice(-300)));
   r.add('POST', '/api/devices/:id/slots/:slot', async (req, res, p) => {
     const b = await body(req);
@@ -203,14 +210,14 @@ function buildApi(fleet, ctl) {
   r.add('GET', '/api/system', async (req, res) => {
     let printers = [];
     try { printers = await cupsList(); } catch { /* */ }
-    sendJson(res, 200, { platform: process.platform, mdns: ctl.mdns.status, mdnsHost: ctl.mdns.hostName(), systemPrinters: printers, commands: manualCommands(fleet.summary()) });
+    sendJson(res, 200, { platform: process.platform, mdns: ctl.mdns.status, mdnsHost: ctl.mdns.hostName(), systemPrinters: printers, commands: manualCommands(fleet.summary(), { uiPort: fleet.settings.uiPort }) });
   });
   r.add('POST', '/api/system/printers', async (req, res) => {
     const b = await body(req);
     const lines = [];
     try {
       if (b.remove) await removeSystemPrinters({ log: (l) => lines.push(l) });
-      else await installSystemPrinters(fleet.summary(), { allQueues: !!b.allQueues, raw: !!b.raw, log: (l) => lines.push(l) });
+      else await installSystemPrinters(fleet.summary(), { allQueues: !!b.allQueues, raw: !!b.raw, driverless: !!b.driverless, getPpd: (id) => generatePpd(fleet, fleet.device(id)), log: (l) => lines.push(l) });
       fleet.log(null, 'info', `Systemdrucker ${b.remove ? 'entfernt' : 'eingerichtet'}:\n${lines.join('\n')}`);
       sendJson(res, 200, { ok: true, output: lines.join('\n') });
     } catch (e) {

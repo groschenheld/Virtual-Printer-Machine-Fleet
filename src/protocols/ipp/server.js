@@ -50,10 +50,10 @@ function printerAttributes(fleet, dev, baseUri, queueName) {
     supported.add(`roll_min_${c.roll.minWidthMm}x${c.roll.minLengthMm || 100}mm`);
     supported.add(`roll_max_${c.roll.maxWidthMm}x${c.roll.maxLengthMm}mm`);
     for (const n of ['iso_a4_210x297mm', 'iso_a3_297x420mm', 'iso_a2_420x594mm', 'iso_a1_594x841mm', 'iso_a0_841x1189mm']) supported.add(n);
-    if (c.kind === 'photo') for (const n of ['custom_102x152mm', 'custom_127x178mm', 'custom_152x203mm', 'custom_203x254mm', 'custom_203x305mm', 'iso_a4_210x297mm']) supported.add(n);
+    if (c.kind === 'photo') for (const n of ['custom_9x13_89x127mm', 'custom_10x15_102x152mm', 'custom_13x18_127x178mm', 'custom_15x20_152x203mm', 'custom_20x25_203x254mm', 'custom_20x30_203x305mm', 'iso_a4_210x297mm']) supported.add(n);
   }
   for (const r of ready) supported.add(r);
-  const mods = c.finisher?.modules || {};
+  const mods = require('../../frontends').installedModules(c);
   const fins = [3];
   if (mods.stapler) { fins.push(4); for (const p of mods.stapler.positions || []) { const kw = 'staple-' + p; if (IPP_FINISHINGS_REV[kw]) fins.push(IPP_FINISHINGS_REV[kw]); } }
   if (mods.puncher) { fins.push(5); for (const h of mods.puncher.holes) fins.push({ 2: 74, 3: 78, 4: 82 }[h]); }
@@ -82,7 +82,8 @@ function printerAttributes(fleet, dev, baseUri, queueName) {
     'printer-make-and-model': v.text(`${c.vendor} ${c.model} (${fe.ippInfo})`),
     'printer-device-id': v.text(`MFG:${c.vendor};MDL:${c.model};CMD:PDF,PS,PWG,${c.kind === 'wide' ? 'HPGL2,' : ''}JPEG;CLS:PRINTER;DES:${c.name} (Simulation);`),
     'printer-uuid': v.uri(uuidFor(c.id)),
-    'printer-more-info': v.uri(`${fleet.uiUrl || 'http://127.0.0.1:8650'}/#/device/${c.id}`),
+    'printer-more-info': v.uri(baseUri.replace(/^ipp:/, 'http:').replace(/\/ipp\/print.*$/, '/')),
+    'printer-supply-info-uri': v.uri(baseUri.replace(/^ipp:/, 'http:').replace(/\/ipp\/print.*$/, '/')),
     'printer-state': v.enum(st.ipp),
     'printer-state-reasons': st.reasons.map((r) => v.kw(r)),
     'printer-state-message': v.text(st.message),
@@ -104,7 +105,7 @@ function printerAttributes(fleet, dev, baseUri, queueName) {
     'copies-default': v.int(1), 'copies-supported': v.range(1, 9999),
     'sides-default': v.kw('one-sided'),
     'sides-supported': (c.duplex ? ['one-sided', 'two-sided-long-edge', 'two-sided-short-edge'] : ['one-sided']).map((s) => v.kw(s)),
-    'media-default': v.kw(ready[0] || Array.from(supported)[0] || 'iso_a4_210x297mm'),
+    'media-default': v.kw(c.kind === 'sheet' ? (ready[0] || 'iso_a4_210x297mm') : c.kind === 'photo' ? 'custom_10x15_102x152mm' : 'iso_a1_594x841mm'),
     'media-ready': (ready.length ? ready : ['none']).map((x) => v.kw(x)),
     'media-supported': Array.from(supported).map((x) => v.kw(x)),
     'media-col-default': loaded[0] ? mediaCol(loaded[0].m, loaded[0].slot, c) : v.noValue(),
@@ -221,6 +222,10 @@ function applyJobAttributes(job, attrs, dev, fleet) {
         const bad = [];
         for (const f of kw) if (!applyFinishingKeyword(job, f, src('finishings'))) bad.push(f);
         if (bad.length) { unsupported[k] = bad.map((b) => v.enum(IPP_FINISHINGS_REV[b] || 3)); job.warn('TICKET', `finishings ${bad.join(', ')} von der Simulation nicht umgesetzt`); }
+        if (dev.cfg.kind === 'wide' && job.ticket.finishing.fold) {
+          const map = { 'engineering-z': 'din824-a', z: 'din824-a', 'half-z': 'din824-a', poster: 'din824-b', accordion: 'fan' };
+          if (map[job.ticket.finishing.fold]) setTicket(job, 'finishing.fold', map[job.ticket.finishing.fold], `IPP finishings → Faltmaschine (${job.ticket.finishing.fold})`);
+        }
         break;
       }
       case 'finishings-col':
