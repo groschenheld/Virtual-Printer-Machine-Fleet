@@ -19,13 +19,66 @@ Optionen:
   --data <dir>      Datenverzeichnis (Standard ~/.local/share/virtual-print-fleet bzw. %APPDATA%)
   --time <faktor>   Zeitraffer (20 = 20× schneller, 0 = sofort, 1 = Echtzeit)
   --open            Oberfläche im Browser öffnen
+  --no-mdns         Geräte nicht per Bonjour/mDNS ankündigen
+
+Befehle:
+  vpf drucker-einrichten [--alle-queues] [--raw]
+                    alle Geräte als Systemdrucker eintragen (CUPS bzw. Windows), damit sie
+                    in Druckdialogen und Apps erscheinen. --alle-queues: auch hold/Presets
+                    als eigene Drucker, --raw: Daten unverändert durchreichen (ohne Treiber)
+  vpf drucker-entfernen
+                    alle von Virtual Print Fleet eingetragenen Systemdrucker entfernen
+  vpf drucker-befehle
+                    nur die Befehle anzeigen (zum manuellen Ausführen)
 `);
   process.exit(0);
 }
 
+const CMD = process.argv[2] && !process.argv[2].startsWith('-') ? process.argv[2] : null;
+
+/** Läuft die Simulation schon? Dann deren Zustand nehmen, sonst kurz selbst starten. */
+async function withFleet(fn) {
+  const port = arg('--port') ? Number(arg('--port')) : 8650;
+  try {
+    const r = await fetch(`http://127.0.0.1:${port}/api/state`);
+    if (r.ok) return fn(await r.json(), true);
+  } catch { /* läuft nicht */ }
+  const app = await startServer({ port, dataDir: arg('--data'), bindHost: arg('--bind'), mdns: false });
+  try { return await fn(app.fleet.summary(), false); } finally {
+    await app.close();
+    // Unter sudo gestartet: Daten wieder dem eigentlichen Benutzer geben
+    if (process.getuid && process.getuid() === 0 && process.env.SUDO_USER) {
+      try { require('child_process').execFileSync('chown', ['-R', process.env.SUDO_USER, app.fleet.store.dir]); } catch { /* */ }
+    }
+  }
+}
+
+async function command() {
+  const sp = require('./system/printers');
+  if (CMD === 'drucker-befehle') {
+    await withFleet((s) => console.log(sp.manualCommands(s, { allQueues: flag('--alle-queues') })));
+  } else if (CMD === 'drucker-einrichten') {
+    await withFleet(async (s, running) => {
+      console.log(`Richte ${s.devices.filter((d) => d.enabled).length} Geräte als Systemdrucker ein${running ? '' : ' (Simulation dafür kurz gestartet)'} …`);
+      const r = await sp.installSystemPrinters(s, { allQueues: flag('--alle-queues'), raw: flag('--raw') });
+      console.log(`\nFertig${r ? `: ${r.ok} eingerichtet${r.failed ? `, ${r.failed} fehlgeschlagen` : ''}` : ''}. Die Simulation muss laufen (vpf bzw. Dienst), damit Druckjobs ankommen.`);
+    });
+  } else if (CMD === 'drucker-entfernen') {
+    const n = await sp.removeSystemPrinters();
+    console.log(`Fertig${n != null ? `: ${n} Drucker entfernt` : ''}.`);
+  } else {
+    console.error(`Unbekannter Befehl „${CMD}" – siehe vpf --help`);
+    process.exit(1);
+  }
+}
+
 (async () => {
+  if (CMD) {
+    try { await command(); process.exit(0); } catch (e) { console.error('✘', e.message); process.exit(1); }
+  }
   try {
     const app = await startServer({
+      mdns: !flag('--no-mdns'),
       port: arg('--port') ? Number(arg('--port')) : undefined,
       uiHost: arg('--ui-host'),
       bindHost: arg('--bind'),
@@ -40,7 +93,10 @@ Optionen:
       const errs = Object.entries(d.ifaces).filter(([, v]) => v && v.error).map(([k, v]) => `${k}: ${v.error}`);
       console.log(`  ${s.name.padEnd(36)} ${s.endpoints.ipp.padEnd(40)} LPD ${s.endpoints.lpd.padEnd(18)} Socket ${s.endpoints.raw}${errs.length ? '  ⚠ ' + errs.join('; ') : ''}`);
     }
-    console.log('\nBeenden mit Strg+C');
+    const md = f.mdns && f.mdns.status;
+    if (md) setTimeout(() => console.log(md.active ? `\nBonjour/mDNS: Geräte angekündigt als ${f.mdns.hostName()} (${md.addresses.join(', ')})` : `\nBonjour/mDNS aus${md.error ? ': ' + md.error : ''}`), 300);
+    console.log('\nSystemdrucker eintragen (für Druckdialoge/Apps): vpf drucker-einrichten');
+    console.log('Beenden mit Strg+C');
     if (flag('--open')) {
       const { exec } = require('child_process');
       exec(process.platform === 'win32' ? `start "" "${app.url}"` : process.platform === 'darwin' ? `open "${app.url}"` : `xdg-open "${app.url}"`);

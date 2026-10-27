@@ -7,7 +7,7 @@
 const fs = require('fs');
 const { PDFDocument, StandardFonts, rgb, degrees, PDFName, PDFHexString, PDFOperator, PDFOperatorNames,
   pushGraphicsState, popGraphicsState, rectangle, clip, endPath, moveTo, lineTo, appendBezierCurve, closePath, stroke,
-  setLineWidth, setStrokingRgbColor, setDashPattern, concatTransformationMatrix } = require('pdf-lib');
+  setLineWidth, setStrokingRgbColor, setDashPattern, concatTransformationMatrix } = require('../vendor/pdf-lib');
 const { mm2pt, pt2mm, r1, pdfSafe, fmtSize } = require('../util/misc');
 const { flatten } = require('./contentparser');
 

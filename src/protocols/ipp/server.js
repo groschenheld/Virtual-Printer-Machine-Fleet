@@ -131,6 +131,13 @@ function printerAttributes(fleet, dev, baseUri, queueName) {
     'print-quality-default': v.enum(4), 'print-quality-supported': [3, 4, 5].map((x) => v.enum(x)),
     'printer-resolution-default': v.res(c.kind === 'sheet' ? 2400 : 1200),
     'printer-resolution-supported': [v.res(600), v.res(1200), v.res(2400)],
+    // Für CUPS „driverless" (lpadmin -m everywhere) notwendig
+    'pwg-raster-document-resolution-supported': [v.res(300), v.res(600)],
+    'pwg-raster-document-type-supported': [v.kw('black_1'), v.kw('sgray_8'), v.kw('srgb_8')],
+    'pwg-raster-document-sheet-back': v.kw('normal'),
+    'print-content-optimize-supported': [v.kw('auto')],
+    'presentation-direction-number-up-supported': [v.kw('toright-tobottom')],
+    'print-rendering-intent-supported': [v.kw('auto')],
     'job-hold-until-default': v.kw('no-hold'),
     'job-hold-until-supported': [v.kw('no-hold'), v.kw('indefinite')],
     'job-priority-default': v.int(50), 'job-priority-supported': v.int(100),
@@ -403,7 +410,7 @@ async function finishMultiDoc(fleet, job, opAttrs) {
   if (!docs.length) { job.setState('aborted', ['job-data-insufficient'], 'Keine Dokumentdaten'); return; }
   let data = docs[0];
   if (docs.length > 1) {
-    const { PDFDocument } = require('pdf-lib');
+    const { PDFDocument } = require('../../vendor/pdf-lib');
     const { normalize } = require('../../pipeline/detect');
     const out = await PDFDocument.create();
     for (const d of docs) {

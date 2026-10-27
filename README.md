@@ -59,28 +59,48 @@ In der Oberfläche gibt es dazu die Bogen-/Rollenansicht (echtes Druckbild via p
 
 ## Installation
 
-Voraussetzung: **Node.js ≥ 18** (Linux, macOS oder Windows).
+**Alles Nötige ist im Repository enthalten** – die Bibliotheken (pdf-lib, pdf.js) liegen gebündelt in `src/vendor` und `ui/vendor`, ein `npm install` ist nicht nötig. Einzige Voraussetzung ist **Node.js ≥ 18**. Für AppImage/.exe-Builds wird Node.js ≥ 22 benötigt.
+
+Ohne installiertes Node.js: das **portable Paket** nehmen (`virtual-print-fleet-<version>-linux-x64.tar.gz`, `…-linux-arm64.tar.gz` bzw. `…-win-x64.zip` aus den GitHub-Releases). Es bringt die Node.js-Laufzeit im Ordner `runtime/` mit; entpacken und `./vpf --open` (Windows: „Virtual Print Fleet starten.cmd“) – oder `./install.sh` für Befehl und Startmenü-Eintrag. Selbst bauen: `tools/portable.sh linux-x64|linux-arm64|win-x64`.
 
 ```bash
 git clone https://github.com/<du>/virtual-print-fleet.git
 cd virtual-print-fleet
-./install.sh              # Abhängigkeiten, Befehl "vpf", Startmenü-Eintrag, Beispieldateien
+./install.sh              # für den eigenen Benutzer: ~/.local/bin/vpf + Startmenü-Eintrag
 vpf --open                # startet die Simulation und öffnet http://127.0.0.1:8650
+```
+
+Oder systemweit für alle Benutzer:
+
+```bash
+sudo ./install.sh         # /usr/local/bin/vpf + /usr/share/applications; Projektdateien bleiben dem eigenen Benutzer
+vpf --open                # danach als normaler Benutzer starten (nicht mit sudo)
 ```
 
 Optionen von `install.sh`:
 
 | Option | Wirkung |
 |---|---|
-| `--service` | zusätzlich als systemd-Benutzerdienst im Hintergrund starten |
+| `--drucker` | Geräte zusätzlich als Systemdrucker eintragen (siehe [Geräte in der App sichtbar machen](#geräte-in-der-app-sichtbar-machen)) |
+| `--service` | zusätzlich als Hintergrunddienst starten (ohne sudo: systemd-Benutzerdienst, mit sudo: Systemdienst, der als eigener Benutzer läuft) |
 | `--bind 0.0.0.0` | Geräte im Netzwerk erreichbar machen (Standard: nur `127.0.0.1`) |
 | `--port 8650` | Port der Oberfläche |
+| `--no-desktop` | keinen Startmenü-Eintrag anlegen |
 | `--build appimage` / `--build exe` / `--build all` | Desktop-Pakete bauen (siehe unten) |
-| `--uninstall` | Befehl, Startmenü-Eintrag und Dienst entfernen (Daten bleiben) |
 
-Ohne Installer: `npm install && npm start` (headless) bzw. `npm run app` (Electron-Fenster).
+### Deinstallation
 
-`vpf` / `node src/cli.js` kennt `--port`, `--bind`, `--data <ordner>`, `--time <faktor>` (Zeitraffer, `0` = sofort) und `--open`.
+```bash
+./uninstall.sh            # Befehl, Startmenü-Eintrag, Symbol und Dienst entfernen – Daten bleiben
+sudo ./uninstall.sh       # zusätzlich systemweite Installation und Reste unter /root (z. B. nach "sudo bash install.sh")
+./uninstall.sh --purge    # außerdem Jobs, Hotfolder, Einstellungen, node_modules, samples und dist löschen (mit Rückfrage, -y ohne)
+```
+
+Laufende Simulationen aus dem Projektordner werden dabei beendet. Der Projektordner selbst bleibt bestehen. `./install.sh --uninstall` ruft dasselbe Skript auf.
+
+Ohne Installer: `node src/cli.js --open` (headless). Electron-Fenster zum Entwickeln: `npm install && npm run app`.
+
+`vpf` / `node src/cli.js` kennt `--port`, `--bind`, `--data <ordner>`, `--time <faktor>` (Zeitraffer, `0` = sofort), `--no-mdns` und `--open` sowie die Befehle `drucker-einrichten`, `drucker-entfernen` und `drucker-befehle`.
 
 Daten liegen unter `~/.local/share/virtual-print-fleet` (Linux), `%APPDATA%\virtual-print-fleet` (Windows) bzw. `~/Library/Application Support/virtual-print-fleet` (macOS) – oder in `VPF_DATA`.
 
@@ -99,9 +119,35 @@ Die `.exe` lässt sich unter Windows direkt bauen (Git Bash: `./install.sh --bui
 git tag v0.1.0 && git push --tags
 ```
 
+Bei jedem Release-Tag entstehen zusätzlich die portablen Pakete (Linux x64/arm64, Windows x64) inklusive Node.js-Laufzeit.
+
 Tipp: Nach dem ersten `npm install` die `package-lock.json` mit einchecken, dann sind die Builds reproduzierbar.
 
 ## Drucker-App anbinden
+
+### Geräte in der App sichtbar machen
+
+Die Simulation stellt die Geräte unter eigenen Adressen bereit. Ob eine App sie *von selbst* anzeigt, hängt davon ab, wie sie Drucker findet:
+
+| Die App findet Drucker über … | Dann |
+|---|---|
+| die **System-Druckerliste** (CUPS unter Linux/macOS, Druckwarteschlangen unter Windows) – das tun die meisten Desktop-Apps und Druckdialoge | `vpf drucker-einrichten` ausführen (oder in der Oberfläche **Als Systemdrucker eintragen**). Jedes Gerät erscheint als Drucker `VPF_<Gerätename>`, mit `--alle-queues` zusätzlich jede Warteschlange (z. B. Fiery „hold“) als eigener Drucker. |
+| **Netzwerksuche** (Bonjour/mDNS, „Drucker im Netzwerk suchen“) | ist eingebaut und standardmäßig an: jedes Gerät wird als `_ipp._tcp`, `_printer._tcp` und `_pdl-datastream._tcp` angekündigt. Läuft die App auf einem **anderen Rechner**, in den Einstellungen „im Netzwerk erreichbar“ (0.0.0.0) wählen bzw. `vpf --bind 0.0.0.0` starten. |
+| **manuell eingegebene Adresse/IP** | die Adresse aus „Front-End & Schnittstellen“ des Geräts eintragen (Tabelle unten). |
+
+```bash
+vpf drucker-einrichten                 # alle Geräte als CUPS-Drucker (driverless, Fallback raw)
+vpf drucker-einrichten --alle-queues   # zusätzlich hold/Presets als eigene Drucker
+vpf drucker-einrichten --raw           # Daten unverändert durchreichen (kein CUPS-Filter)
+vpf drucker-entfernen                  # alle VPF_-Drucker wieder austragen
+vpf drucker-befehle                    # nur die lpadmin-Befehle anzeigen
+```
+
+`lpadmin` braucht Admin-Rechte: entweder mit `sudo` (bei Installation nur für den Benutzer: `sudo ~/.local/bin/vpf drucker-einrichten`) oder den Benutzer in die Gruppe `lpadmin` aufnehmen. Die Simulation muss laufen, damit Jobs ankommen – am bequemsten als Dienst (`./install.sh --service --drucker`). `uninstall.sh` entfernt die Systemdrucker mit.
+
+Unter Windows legt `vpf drucker-einrichten` (PowerShell als Administrator) je Gerät einen TCP/IP-Port und einen Drucker mit dem „Microsoft PS Class Driver“ an – dafür braucht die Simulation Ghostscript (PostScript-Eingang).
+
+### Adressen
 
 Jedes Gerät hat eigene Ports (Standard: HTTP `6310+n`, LPD `5150+n`, Socket `9100+n`; `n` = Position im Maschinenpark). Die genauen Adressen stehen in der Oberfläche unter **Front-End & Schnittstellen** und beim Start in der Konsole.
 
@@ -204,7 +250,8 @@ Alle Felder sind optional. Was nicht gesetzt ist, kommt aus Preset bzw. Gerätes
 - `schnitt.camm` dient der Nachvollziehbarkeit (Pfade, Reihenfolge, Ursprung) – nicht dazu, einen echten Plotter anzusteuern.
 - PostScript braucht Ghostscript auf dem Rechner (Pfad in den Einstellungen).
 - HTTPS für Fiery-API/IPPS ist nicht eingebaut (alles läuft über HTTP).
-- Kein mDNS/Bonjour – Geräte werden per Adresse angelegt.
+- Bonjour/mDNS kündigt die Geräte an, eine SNMP-Abfrage (Printer-MIB), wie sie manche Verwaltungstools zur Suche nutzen, ist nicht nachgebildet.
+- Die Systemdrucker-Einrichtung wurde gegen ein nachgebildetes `lpadmin` getestet, nicht gegen ein echtes CUPS; der Windows-Weg ist ungetestet.
 
 ## Projektstruktur & Entwicklung
 
@@ -217,7 +264,9 @@ src/
   protocols/                 IPP (codec + server), LPD, Socket/PJL, JMF/JDF, Fiery-API, Hotfolder
   pipeline/                  Formaterkennung, Preflight (Schmuckfarben/Schneidpfade), Material, Ausschießen
                              (Bogen, Rolle, Foto, Print&Cut), Finishing, Ausgabe-PDFs, Ablauf
-ui/                          Oberfläche (ohne Framework, pdf.js für die Bogenansicht)
+src/vendor/pdf-lib.js        gebündeltes pdf-lib (inkl. pako, tslib) – keine npm-Abhängigkeiten zur Laufzeit
+ui/                          Oberfläche (ohne Framework); ui/vendor/pdfjs = pdf.js für die Bogenansicht
+tools/portable.sh            portables Paket inkl. Node.js-Laufzeit bauen
 electron/main.js             Desktop-Hülle für AppImage/.exe
 tools/send.js                Testclient (IPP/LPR/Socket/JMF)
 tools/make-samples.js        Beispieldateien (Broschüre, Visitenkarten, Pläne, Foto, Sticker mit CutContour, PJL, HP-GL)
@@ -225,7 +274,7 @@ test/                        node:test – Einheiten- und Ende-zu-Ende-Tests üb
 ```
 
 ```bash
-npm test          # Tests (startet die Simulation auf Testports)
+node --test       # Tests (startet die Simulation auf Testports)
 npm start         # headless
 npm run app       # Electron
 ```
@@ -234,4 +283,4 @@ REST-API der Oberfläche (für Automatisierung, z. B. in Tests eurer App): `GET 
 
 ## Lizenz
 
-MIT – siehe [LICENSE](LICENSE). Hersteller- und Produktnamen dienen nur der Bezeichnung der simulierten Geräte; das Projekt steht in keiner Verbindung zu Canon, Xerox, Epson, Roland DG oder EFI.
+MIT – siehe [LICENSE](LICENSE). Gebündelte Fremdkomponenten und ihre Lizenzen: [THIRD_PARTY_LICENSES.txt](THIRD_PARTY_LICENSES.txt). Hersteller- und Produktnamen dienen nur der Bezeichnung der simulierten Geräte; das Projekt steht in keiner Verbindung zu Canon, Xerox, Epson, Roland DG oder EFI.

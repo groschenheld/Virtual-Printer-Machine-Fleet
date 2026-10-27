@@ -125,7 +125,7 @@ function slotLevel(s) {
 }
 function renderOverview() {
   setNav('/');
-  let h = `<div class="row"><div><h1>Maschinenpark</h1><div class="sub">${S.state.devices.length} simulierte Geräte · Daten in <code>${esc(S.state.dataDir)}</code></div></div></div>`;
+  let h = `<div class="row"><div><h1>Maschinenpark</h1><div class="sub">${S.state.devices.length} simulierte Geräte · Daten in <code>${esc(S.state.dataDir)}</code></div></div></div><div id="visibility"></div>`;
   for (const k of ['sheet', 'wide', 'photo', 'printcut']) {
     const list = S.state.devices.filter((d) => d.kind === k);
     if (!list.length) continue;
@@ -142,7 +142,36 @@ function renderOverview() {
     }
     h += '</div>';
   }
+  const keep = $('#visibility');
   $('#main').innerHTML = h;
+  if (keep && keep.innerHTML) $('#visibility').replaceWith(keep);
+  else renderVisibility($('#visibility'));
+}
+
+async function renderVisibility(el) {
+  if (!el) return;
+  let sys;
+  try { sys = await api('/api/system'); } catch { return; }
+  const n = sys.systemPrinters.length;
+  const md = sys.mdns || {};
+  const loop = (md.addresses || []).every((a) => a.startsWith('127.'));
+  el.innerHTML = `<div class="card" style="margin-top:14px"><div class="row"><b>Sichtbarkeit für Druck-Apps</b><span class="spacer"></span>
+      <span class="badge" title="Bonjour/mDNS">${md.active ? `Bonjour aktiv · ${esc(sys.mdnsHost)} (${esc((md.addresses || []).join(', '))})` : 'Bonjour aus' + (md.error ? ': ' + esc(md.error) : '')}</span>
+      <span class="badge">${n ? n + ' Systemdrucker eingetragen' : 'keine Systemdrucker eingetragen'}</span></div>
+    <div class="sub" style="margin:6px 0 10px">Apps finden Drucker meist über die <b>System-Druckerliste</b> (CUPS/Windows) oder per <b>Netzwerksuche</b> (Bonjour). Andere Apps brauchen die Adresse direkt – siehe „Front-End &amp; Schnittstellen" des Geräts.${md.active && loop ? ' Hinweis: Die Geräte lauschen nur auf 127.0.0.1 – für Apps auf anderen Rechnern in den Einstellungen „im Netzwerk erreichbar" wählen.' : ''}</div>
+    <div class="row"><button class="primary" id="sysadd">${n ? 'Systemdrucker aktualisieren' : 'Als Systemdrucker eintragen'}</button><label class="chk"><input type="checkbox" id="sysq"> auch Warteschlangen/Presets (hold, …) als eigene Drucker</label>${n ? '<button class="danger" id="sysdel">Systemdrucker entfernen</button>' : ''}<span class="spacer"></span><button class="ghost small" id="syscmd">Befehle anzeigen</button></div>
+    <pre class="proto" id="sysout" hidden style="margin-top:10px"></pre></div>`;
+  const out = $('#sysout', el);
+  const show = (t) => { out.hidden = false; out.textContent = t; };
+  const go = async (b) => {
+    show('Bitte warten …');
+    const r = await api('/api/system/printers', { json: b });
+    show((r.output ? r.output + '\n' : '') + (r.ok ? '✔ Fertig – die Geräte erscheinen jetzt in Druckdialogen und Apps, die die Systemliste nutzen.' : `✘ ${r.error}\n\n${r.hint}`));
+    if (r.ok) setTimeout(() => renderVisibility(el), 1500);
+  };
+  $('#sysadd', el).onclick = () => go({ allQueues: $('#sysq', el).checked });
+  if ($('#sysdel', el)) $('#sysdel', el).onclick = () => confirm('Alle VPF-Systemdrucker entfernen?') && go({ remove: true });
+  $('#syscmd', el).onclick = () => show(sys.commands);
 }
 
 // ------------------------------------------------------------------ Gerät
@@ -498,13 +527,14 @@ function settingsDialog() {
   const d = $('#dlg');
   d.innerHTML = `<h2 style="margin-top:0">Einstellungen</h2><div class="form" style="grid-template-columns:1fr">
     <label>Adresse der Geräte-Schnittstellen<select id="sbind"><option value="127.0.0.1" ${s.bindHost === '127.0.0.1' ? 'selected' : ''}>127.0.0.1 – nur dieser Rechner</option><option value="0.0.0.0" ${s.bindHost === '0.0.0.0' ? 'selected' : ''}>0.0.0.0 – im Netzwerk erreichbar</option></select></label>
+    <label class="chk"><input type="checkbox" id="smdns" ${s.mdns !== false ? 'checked' : ''}> Geräte per Bonjour/mDNS im Netzwerk ankündigen</label>
     <label>Angezeigte Adresse bei 0.0.0.0 (z. B. LAN-IP)<input type="text" id="spub" value="${esc(s.publicHost || '')}"></label>
     <label>Ghostscript (für PostScript), leer = automatisch<input type="text" id="sgs" value="${esc(s.ghostscript || '')}" placeholder="gs bzw. C:\\Program Files\\gs\\…\\gswin64c.exe"></label>
     <label>Max. gespeicherte Jobs<input type="number" id="skeep" value="${s.keepJobs}"></label></div>
     <div class="row" style="margin-top:14px"><button class="primary" id="ssave">Speichern</button><button id="sclose">Schließen</button><span class="spacer"></span><button class="danger" id="sreset">Maschinenpark zurücksetzen</button></div>`;
   d.showModal();
   $('#sclose').onclick = () => d.close();
-  $('#ssave').onclick = async () => { await act(() => api('/api/settings', { method: 'PUT', json: { bindHost: $('#sbind').value, publicHost: $('#spub').value.trim(), ghostscript: $('#sgs').value.trim(), keepJobs: Number($('#skeep').value) } }), 'Gespeichert'); await loadState(); d.close(); route(); };
+  $('#ssave').onclick = async () => { await act(() => api('/api/settings', { method: 'PUT', json: { mdns: $('#smdns').checked, bindHost: $('#sbind').value, publicHost: $('#spub').value.trim(), ghostscript: $('#sgs').value.trim(), keepJobs: Number($('#skeep').value) } }), 'Gespeichert'); await loadState(); d.close(); route(); };
   $('#sreset').onclick = async () => { if (!confirm('Geräte und Materialkatalog auf Standard zurücksetzen? (Jobs bleiben erhalten, Neustart nötig)')) return; await act(() => api('/api/reset', { method: 'POST' }), 'Zurückgesetzt – bitte Anwendung neu starten'); d.close(); };
 }
 

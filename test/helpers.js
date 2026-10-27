@@ -16,7 +16,7 @@ function samples() {
 
 async function startTest(offset = 0) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vpf-test-'));
-  const app = await startServer({ dataDir, port: 18650 + offset, timeFactor: 0, basePorts: { http: 16310 + offset * 20, lpd: 15150 + offset * 20, raw: 19100 + offset * 20 } });
+  const app = await startServer({ dataDir, port: 18650 + offset, timeFactor: 0, mdns: false, basePorts: { http: 16310 + offset * 20, lpd: 15150 + offset * 20, raw: 19100 + offset * 20 } });
   return { app, fleet: app.fleet, dataDir, close: async () => { await app.close(); fs.rmSync(dataDir, { recursive: true, force: true }); } };
 }
 

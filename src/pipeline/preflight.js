@@ -1,5 +1,5 @@
 'use strict';
-const { PDFDocument } = require('pdf-lib');
+const { PDFDocument } = require('../vendor/pdf-lib');
 const { analyzePage, pathsBBox } = require('./contentparser');
 const { pt2mm, r1, fmtSize } = require('../util/misc');
 const { nameFromSize } = require('./ticket');

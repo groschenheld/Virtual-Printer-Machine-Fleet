@@ -3,7 +3,7 @@
 // Erzeugt Testdateien in ./samples (oder Zielordner als Argument).
 const fs = require('fs');
 const path = require('path');
-const { PDFDocument, StandardFonts, rgb, PDFName, PDFOperator, PDFNumber } = require('pdf-lib');
+const { PDFDocument, StandardFonts, rgb, PDFName, PDFOperator, PDFNumber } = require('../src/vendor/pdf-lib');
 const { encodePng } = require('../src/util/png');
 const mm = (v) => (v * 72) / 25.4;
 

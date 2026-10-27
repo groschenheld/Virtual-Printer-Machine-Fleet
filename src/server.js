@@ -13,15 +13,13 @@ const { handleFieryApi } = require('./protocols/fieryapi');
 const { startLpd, listen } = require('./protocols/lpd');
 const { startRaw } = require('./protocols/raw');
 const { HotFolders } = require('./protocols/hotfolder');
+const { MdnsResponder } = require('./protocols/mdns');
+const { installSystemPrinters, removeSystemPrinters, manualCommands, cupsList } = require('./system/printers');
 const { applyObject } = require('./pipeline/ticket');
 const { frontendOf } = require('./frontends');
 const { clone } = require('./util/misc');
 
 const UI_DIR = path.join(__dirname, '..', 'ui');
-
-function pdfjsDir() {
-  try { return path.join(path.dirname(require.resolve('pdfjs-dist/package.json')), 'build'); } catch { return null; }
-}
 
 // ------------------------------------------------------------------ Geräte-Schnittstellen
 async function startDeviceInterfaces(fleet, dev) {
@@ -110,6 +108,7 @@ function buildApi(fleet, ctl) {
     fleet.saveNow();
     if (restart) await startDeviceInterfaces(fleet, dev);
     ctl.hot.stop(); ctl.hot.start();
+    ctl.mdns.announce();
     dev.changed();
     sendJson(res, 200, fleet.deviceSummary(dev));
   });
@@ -192,11 +191,31 @@ function buildApi(fleet, ctl) {
   r.add('PUT', '/api/settings', async (req, res) => {
     const b = await body(req);
     for (const k of ['timeFactor', 'ghostscript', 'keepJobs', 'publicHost']) if (b[k] !== undefined) fleet.settings[k] = b[k];
+    const mdnsChanged = b.mdns !== undefined && b.mdns !== fleet.settings.mdns;
+    if (b.mdns !== undefined) fleet.settings.mdns = !!b.mdns;
     let restart = false;
     if (b.bindHost && b.bindHost !== fleet.settings.bindHost) { fleet.settings.bindHost = b.bindHost; restart = true; }
     fleet.saveNow();
     if (restart) for (const d of fleet.devices.values()) await startDeviceInterfaces(fleet, d);
+    if (restart || mdnsChanged) await ctl.mdns.restart();
     sendJson(res, 200, fleet.settings);
+  });
+  r.add('GET', '/api/system', async (req, res) => {
+    let printers = [];
+    try { printers = await cupsList(); } catch { /* */ }
+    sendJson(res, 200, { platform: process.platform, mdns: ctl.mdns.status, mdnsHost: ctl.mdns.hostName(), systemPrinters: printers, commands: manualCommands(fleet.summary()) });
+  });
+  r.add('POST', '/api/system/printers', async (req, res) => {
+    const b = await body(req);
+    const lines = [];
+    try {
+      if (b.remove) await removeSystemPrinters({ log: (l) => lines.push(l) });
+      else await installSystemPrinters(fleet.summary(), { allQueues: !!b.allQueues, raw: !!b.raw, log: (l) => lines.push(l) });
+      fleet.log(null, 'info', `Systemdrucker ${b.remove ? 'entfernt' : 'eingerichtet'}:\n${lines.join('\n')}`);
+      sendJson(res, 200, { ok: true, output: lines.join('\n') });
+    } catch (e) {
+      sendJson(res, 200, { ok: false, error: e.message, output: lines.join('\n'), hint: process.platform === 'win32' ? 'PowerShell als Administrator: vpf drucker-einrichten' : 'Im Terminal: sudo vpf drucker-einrichten' });
+    }
   });
   r.add('GET', '/api/events', (req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
@@ -220,9 +239,9 @@ async function startServer(opts = {}) {
   const uiHost = opts.uiHost || fleet.settings.uiHost || '127.0.0.1';
   fleet.uiUrl = `http://${uiHost === '0.0.0.0' ? '127.0.0.1' : uiHost}:${uiPort}`;
   setupJmfNotifications(fleet);
-  const ctl = { hot: new HotFolders(fleet), restart: opts.onRestart };
+  const ctl = { hot: new HotFolders(fleet), mdns: new MdnsResponder(fleet), restart: opts.onRestart };
+  fleet.mdns = ctl.mdns;
   const api = buildApi(fleet, ctl);
-  const pdfjs = pdfjsDir();
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');
@@ -233,7 +252,6 @@ async function startServer(opts = {}) {
         if (!m) return sendJson(res, 404, { error: 'Unbekannter API-Endpunkt' });
         return await m.fn(req, res, m.params);
       }
-      if (p.startsWith('/vendor/pdfjs/') && pdfjs) return sendFile(res, path.join(pdfjs, path.basename(p)), { cache: true });
       const f = path.join(UI_DIR, p === '/' ? 'index.html' : path.normalize(p).replace(/^([/\\])+/, ''));
       if (!f.startsWith(UI_DIR)) return sendText(res, 403, 'Verboten');
       return sendFile(res, f);
@@ -245,12 +263,14 @@ async function startServer(opts = {}) {
   if (main.error) throw new Error(`Oberfläche: ${main.error}`);
   for (const d of fleet.devices.values()) await startDeviceInterfaces(fleet, d);
   ctl.hot.start();
+  if (opts.mdns !== false) ctl.mdns.start();
   fleet.start();
   fleet.log(null, 'info', `Simulation gestartet – Oberfläche ${fleet.uiUrl}, Daten in ${store.dir}`);
   return {
     fleet, url: fleet.uiUrl, server,
     async close() {
       ctl.hot.stop();
+      await ctl.mdns.stop();
       clearTimeout(fleet._saveTimer);
       fleet.saveNow();
       fleet._closed = true;

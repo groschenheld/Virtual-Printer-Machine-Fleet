@@ -2,7 +2,7 @@
 // Interpretiert PDF-Content-Streams soweit nötig, um Schmuckfarben (z. B. CutContour,
 // PerfCutContour) zu finden und die damit gezeichneten Pfade als Schneidkonturen zu extrahieren.
 
-const { PDFName, PDFArray, PDFDict, PDFRawStream, PDFContentStream, PDFStream, decodePDFRawStream } = require('pdf-lib');
+const { PDFName, PDFArray, PDFDict, PDFRawStream, PDFContentStream, PDFStream, decodePDFRawStream } = require('../vendor/pdf-lib');
 const { M } = require('../util/misc');
 
 const WS = new Set([0, 9, 10, 12, 13, 32]);

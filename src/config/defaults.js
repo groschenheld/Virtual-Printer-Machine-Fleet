@@ -282,6 +282,7 @@ const settings = {
   maxRenderedSets: 1,
   ghostscript: '', // Pfad zu gs/gswin64c für PostScript, leer = automatisch suchen
   keepJobs: 500,
+  mdns: true, // Geräte per Bonjour/mDNS im Netzwerk ankündigen
 };
 
 module.exports = { media, devices, settings };
