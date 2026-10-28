@@ -1,10 +1,11 @@
 'use strict';
 // LPD/LPR-Server (RFC 1179) je Gerät. Warteschlangennamen wie am echten Front-End
 // (Fiery: print / hold / direct, VersaWorks: QueueA / QueueB, ...).
+const { $t, $tp, $lazy } = require('../i18n.js');
 const net = require('net');
 const { setTicket } = require('../pipeline/ticket');
 
-const CF_DE = { H: 'Host', P: 'Benutzer', J: 'Jobname', C: 'Klasse', L: 'Bannerseite für', T: 'Titel', N: 'Dateiname', M: 'Mail an', I: 'Einzug', W: 'Breite', U: 'Datei löschen', '#': 'Exemplare (BSD)', f: 'formatiert drucken', l: 'Steuerzeichen durchlassen', o: 'PostScript', p: 'mit pr', v: 'Raster', d: 'DVI', g: 'Plot' };
+const CF_DE = $lazy({ H: 'Host', P: $tp('Benutzer', 'User'), J: $tp('Jobname', 'Job name'), C: $tp('Klasse', 'Class'), L: $tp('Bannerseite für', 'Banner page for'), T: $tp('Titel', 'Title'), N: $tp('Dateiname', 'File name'), M: $tp('Mail an', 'Mail to'), I: $tp('Einzug', 'Indent'), W: $tp('Breite', 'Width'), U: $tp('Datei löschen', 'Delete file'), '#': $tp('Exemplare (BSD)', 'Copies (BSD)'), f: $tp('formatiert drucken', 'print formatted'), l: $tp('Steuerzeichen durchlassen', 'Pass control characters'), o: 'PostScript', p: $tp('mit pr', 'with pr'), v: 'Raster', d: 'DVI', g: 'Plot' });
 
 function startLpd(fleet, dev, host, port) {
   const server = net.createServer((sock) => {
@@ -26,10 +27,10 @@ function startLpd(fleet, dev, host, port) {
       for (const l of lines) { const k = l[0]; info[k] = info[k] || l.slice(1); }
       const q = dev.queueByName(queue) ? queue : null;
       const job = fleet.createJob(dev.id, { name: info.J || info.N || null, user: info.P, source: { protocol: 'LPR', remote, queue: queue }, queue: q || queue });
-      job.addProtocol('in', `LPD Druckauftrag an Warteschlange „${queue}" von ${remote}`, transcript.join('\n') + '\n\nSteuerdatei:\n' + lines.map((l) => `  ${l[0]}  ${(CF_DE[l[0]] || '?').padEnd(22)} ${l.slice(1)}`).join('\n'));
+      job.addProtocol('in', $t(`LPD Druckauftrag an Warteschlange „${queue}" von ${remote}`, `LPD print job to queue “${queue}” from ${remote}`), transcript.join('\n') + $t('\n\nSteuerdatei:\n', '\n\nControl file:\n') + lines.map((l) => `  ${l[0]}  ${(CF_DE[l[0]] || '?').padEnd(22)} ${l.slice(1)}`).join('\n'));
       const copies = lines.filter((l) => /^[flopvdg]/.test(l)).length / Math.max(1, files.data.length);
-      if (info['#']) setTicket(job, 'copies', Number(info['#']) || 1, 'LPD Steuerdatei #');
-      else if (copies > 1) setTicket(job, 'copies', Math.round(copies), 'LPD Steuerdatei (Druckzeilen je Datei)');
+      if (info['#']) setTicket(job, 'copies', Number(info['#']) || 1, $t('LPD Steuerdatei #', 'LPD control file #'));
+      else if (copies > 1) setTicket(job, 'copies', Math.round(copies), $t('LPD Steuerdatei (Druckzeilen je Datei)', 'LPD control file (print lines per file)'));
       if (info.N && !info.J) job.name = info.N;
       const data = Buffer.concat(files.data.map((d) => d.data));
       fleet.submit(job, data, { filename: info.N || files.data[0].name });
@@ -49,7 +50,7 @@ function startLpd(fleet, dev, host, port) {
           buf = buf.subarray(expect.len + 1); // abschließendes \0
           if (expect.type === 'control') files.control = data;
           else files.data.push({ name: expect.name, data });
-          transcript.push(`  ← ${expect.type === 'control' ? 'Steuerdatei' : 'Datendatei'} ${expect.name} (${expect.len} Bytes) empfangen, ACK`);
+          transcript.push(`  ← ${expect.type === 'control' ? $t('Steuerdatei', 'Control file') : $t('Datendatei', 'Data file')} ${expect.name} (${expect.len} Bytes) empfangen, ACK`);
           expect = null;
           ack();
           if (files.control && files.data.length) { /* evtl. weitere Dateien folgen; Abschluss bei Verbindungsende */ }
@@ -64,9 +65,9 @@ function startLpd(fleet, dev, host, port) {
         if (state === 'cmd') {
           if (code === 0x02) { // Receive job
             queue = rest.trim();
-            transcript.push(`→ 0x02 Auftrag empfangen, Warteschlange „${queue}"`);
+            transcript.push($t(`→ 0x02 Auftrag empfangen, Warteschlange „${queue}"`, `→ 0x02 job received, queue “${queue}”`));
             const q = dev.queueByName(queue);
-            if (!q) transcript.push(`  (Warteschlange „${queue}" unbekannt – wird an Standard weitergeleitet; ein echtes Fiery würde den Job ablehnen)`);
+            if (!q) transcript.push($t(`  (Warteschlange „${queue}" unbekannt – wird an Standard weitergeleitet; ein echtes Fiery würde den Job ablehnen)`, `  (queue “${queue}” unknown – forwarded to the default; a real Fiery would reject the job)`));
             if (!dev.status.accepting) { nack(); transcript.push('  ← NACK (offline)'); return; }
             state = 'sub';
             ack();
@@ -74,30 +75,30 @@ function startLpd(fleet, dev, host, port) {
             const q = rest.split(' ')[0];
             const jobs = fleet.jobsOf(dev.id).filter((j) => !j.isFinal);
             const long = code === 0x04;
-            const out = [`${dev.cfg.name} (${q}) ist ${dev.status.stateDe.toLowerCase()}`];
-            if (!jobs.length) out.push('keine Einträge');
+            const out = [$t(`${dev.cfg.name} (${q}) ist ${dev.status.stateDe.toLowerCase()}`, `${dev.cfg.name} (${q}) is ${dev.status.stateDe.toLowerCase()}`)];
+            if (!jobs.length) out.push($t('keine Einträge', 'no entries'));
             else for (const j of jobs) out.push(long ? `${j.user}: ${j.id} ${j.name} – ${j.stateText} (${j.input?.bytes || 0} Bytes)` : `${j.id} ${j.user} ${j.name} ${j.stateText}`);
             sock.end(out.join('\n') + '\n');
-            dev.trace('lpd', 'in', `LPD Statusabfrage (${long ? 'lang' : 'kurz'}) „${q}" von ${remote}`, out.join('\n'), true);
+            dev.trace('lpd', 'in', $t(`LPD Statusabfrage (${long ? 'lang' : 'kurz'}) „${q}" von ${remote}`, `LPD status query (${long ? 'long' : 'short'}) “${q}” from ${remote}`), out.join('\n'), true);
             return;
           } else if (code === 0x05) { // Remove jobs
             const [q, agent, ...ids] = rest.split(' ');
             for (const id of ids) { try { fleet.jobAction(Number(id), 'cancel'); } catch { /* */ } }
-            dev.trace('lpd', 'in', `LPD Jobs entfernen ${ids.join(',')} (${agent}) in „${q}"`);
+            dev.trace('lpd', 'in', $t(`LPD Jobs entfernen ${ids.join(',')} (${agent}) in „${q}"`, `LPD remove jobs ${ids.join(',')} (${agent}) in “${q}”`));
             sock.end();
             return;
           } else if (code === 0x01) { // Print waiting jobs
-            dev.trace('lpd', 'in', `LPD „Wartende Jobs drucken" für ${rest}`);
+            dev.trace('lpd', 'in', $t(`LPD „Wartende Jobs drucken" für ${rest}`, `LPD “print waiting jobs” for ${rest}`));
             ack(); sock.end(); return;
           } else { nack(); sock.end(); return; }
         } else if (state === 'sub') {
-          if (code === 0x01) { transcript.push('→ 0x01 Auftrag abbrechen'); files.data = []; files.control = null; ack(); continue; }
+          if (code === 0x01) { transcript.push($t('→ 0x01 Auftrag abbrechen', '→ 0x01 cancel job')); files.data = []; files.control = null; ack(); continue; }
           if (code === 0x02 || code === 0x03) {
             const sp = rest.indexOf(' ');
             const len = parseInt(rest.slice(0, sp), 10);
             const name = rest.slice(sp + 1).trim();
             expect = { type: code === 0x02 ? 'control' : 'data', len, name };
-            transcript.push(`→ 0x0${code} ${code === 0x02 ? 'Steuerdatei' : 'Datendatei'} ${name}, ${len === 0 ? 'Länge unbekannt (bis Verbindungsende)' : len + ' Bytes'}`);
+            transcript.push(`→ 0x0${code} ${code === 0x02 ? $t('Steuerdatei', 'Control file') : $t('Datendatei', 'Data file')} ${name}, ${len === 0 ? $t('Länge unbekannt (bis Verbindungsende)', 'Length unknown (until end of connection)') : len + $t(' Bytes', ' bytes')}`);
             ack();
             continue;
           }
@@ -108,7 +109,7 @@ function startLpd(fleet, dev, host, port) {
     sock.on('end', () => {
       if (expect && expect.len === 0) {
         files.data.push({ name: expect.name, data: buf });
-        transcript.push(`  ← Datendatei ${expect.name} (${buf.length} Bytes, bis Verbindungsende) empfangen`);
+        transcript.push($t(`  ← Datendatei ${expect.name} (${buf.length} Bytes, bis Verbindungsende) empfangen`, `  ← data file ${expect.name} (${buf.length} bytes, until end of connection) received`));
       }
       try { finish(); } catch (e) { fleet.log(dev.id, 'error', `LPD: ${e.message}`); }
     });
@@ -120,7 +121,7 @@ function startLpd(fleet, dev, host, port) {
 
 function listen(server, host, port) {
   return new Promise((resolve) => {
-    server.once('error', (e) => resolve({ server: null, error: e.code === 'EACCES' ? `Port ${port}: keine Berechtigung (Ports < 1024 benötigen Admin-/Root-Rechte)` : e.code === 'EADDRINUSE' ? `Port ${port} ist bereits belegt` : e.message }));
+    server.once('error', (e) => resolve({ server: null, error: e.code === 'EACCES' ? $t(`Port ${port}: keine Berechtigung – Ports unter 1024 brauchen Root bzw. CAP_NET_BIND_SERVICE (am einfachsten: sudo ./install.sh --service --eigene-ips)`, `Port ${port}: permission denied – ports below 1024 need root or CAP_NET_BIND_SERVICE (easiest: sudo ./install.sh --service --eigene-ips)`) : e.code === 'EADDRINUSE' ? $t(`Port ${port} auf ${host} ist bereits belegt`, `Port ${port} on ${host} is already in use`) : e.code === 'EADDRNOTAVAIL' ? $t(`Adresse ${host} ist auf diesem Rechner nicht verfügbar`, `Address ${host} is not available on this computer`) : e.message }));
     server.listen(port, host, () => resolve({ server, error: null }));
   });
 }

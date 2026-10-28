@@ -1,5 +1,6 @@
 'use strict';
 // Startet die Simulation: Oberfläche/REST-API + je Gerät IPP/JMF/Fiery-API (HTTP), LPD, Socket 9100, Hotfolder.
+const { $t, $tp, $lazy } = require('./i18n.js');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -14,6 +15,7 @@ const { startLpd, listen } = require('./protocols/lpd');
 const { startRaw } = require('./protocols/raw');
 const { HotFolders } = require('./protocols/hotfolder');
 const { MdnsResponder } = require('./protocols/mdns');
+const { startSnmp } = require('./protocols/snmp');
 const { handleWebtools } = require('./protocols/webtools');
 const { installSystemPrinters, removeSystemPrinters, manualCommands, cupsList } = require('./system/printers');
 const { generatePpd } = require('./system/ppd');
@@ -28,8 +30,9 @@ async function startDeviceInterfaces(fleet, dev) {
   await stopDeviceInterfaces(dev);
   const c = dev.cfg;
   dev.ifaces = {};
-  if (!c.enabled) { dev.ifaces.note = 'deaktiviert'; return; }
-  const host = c.host || fleet.settings.bindHost;
+  if (!c.enabled) { dev.ifaces.note = $t('deaktiviert', 'disabled'); return; }
+  const net = fleet.netOf(c);
+  const host = net.host;
   const httpServer = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');
     const p = url.pathname;
@@ -42,35 +45,46 @@ async function startDeviceInterfaces(fleet, dev) {
         return res.end(out);
       }
       if (p.startsWith('/live/api/')) {
-        if (!frontendOf(c).features.includes('fiery-api')) return sendJson(res, 404, { error: 'Dieses Front-End hat keine Fiery-API' });
+        if (!frontendOf(c).features.includes('fiery-api')) return sendJson(res, 404, { error: $t('Dieses Front-End hat keine Fiery-API', 'This front end has no Fiery API') });
         const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await readBody(req) : Buffer.alloc(0);
         return handleFieryApi(fleet, dev, req, res, body, p, url.searchParams);
       }
       if (req.method === 'GET' || (req.method === 'POST' && (p === '/config' || p.startsWith('/jobs/')) && /form-urlencoded/.test(ct))) {
         const body = req.method === 'POST' ? await readBody(req, 1024 * 1024) : Buffer.alloc(0);
         if (await handleWebtools(fleet, dev, req, res, p, body)) return;
-        return sendText(res, 404, 'Nicht gefunden');
+        return sendText(res, 404, $t('Nicht gefunden', 'Not found'));
       }
       if (req.method === 'POST' && (p === '/jmf' || p.startsWith('/jmf/') || p === '/' || /cip4|jmf|jdf|multipart\/related/.test(ct))) {
         const body = await readBody(req);
         const r = await handleJmf(fleet, dev, req, body);
         return sendText(res, r.status, r.xml, 'application/vnd.cip4-jmf+xml; charset=utf-8');
       }
-      sendText(res, 405, 'Methode nicht unterstützt');
+      sendText(res, 405, $t('Methode nicht unterstützt', 'Method not supported'));
     } catch (e) {
       fleet.log(dev.id, 'error', `HTTP ${req.method} ${p}: ${e.message}`);
       if (!res.headersSent) sendText(res, 500, e.message);
     }
   });
-  const h = await listen(httpServer, host, c.ports.http);
+  const h = await listen(httpServer, host, net.http);
   dev._servers = [h.server];
-  dev.ifaces.http = h.error ? { error: h.error } : { ok: true, port: c.ports.http };
-  const l = await startLpd(fleet, dev, host, c.ports.lpd);
+  dev.ifaces.http = h.error ? { error: h.error } : { ok: true, port: net.http, host };
+  for (const extra of net.httpExtra) {
+    const srv2 = http.createServer((req, res) => httpServer.emit('request', req, res));
+    const e2 = await listen(srv2, host, extra);
+    dev._servers.push(e2.server);
+    dev.ifaces[`web${extra}`] = e2.error ? { error: e2.error } : { ok: true, port: extra, host };
+  }
+  const l = await startLpd(fleet, dev, host, net.lpd);
   dev._servers.push(l.server);
-  dev.ifaces.lpd = l.error ? { error: l.error } : { ok: true, port: c.ports.lpd };
-  const r = await startRaw(fleet, dev, host, c.ports.raw);
+  dev.ifaces.lpd = l.error ? { error: l.error } : { ok: true, port: net.lpd, host };
+  const r = await startRaw(fleet, dev, host, net.raw);
   dev._servers.push(r.server);
-  dev.ifaces.raw = r.error ? { error: r.error } : { ok: true, port: c.ports.raw };
+  dev.ifaces.raw = r.error ? { error: r.error } : { ok: true, port: net.raw, host };
+  if (net.snmp) {
+    const sn = await startSnmp(fleet, dev, host, net.snmp);
+    dev._servers.push(sn.server);
+    dev.ifaces.snmp = sn.error ? { error: sn.error } : { ok: true, port: net.snmp, host };
+  }
   for (const [k, v] of Object.entries(dev.ifaces)) if (v && v.error) fleet.log(dev.id, 'error', `${k.toUpperCase()}: ${v.error}`);
 }
 
@@ -111,6 +125,12 @@ function buildApi(fleet, ctl) {
     const dev = fleet.device(p.id);
     const c = dev.cfg;
     const restart = (b.ports && JSON.stringify(b.ports) !== JSON.stringify(c.ports)) || (b.host !== undefined && b.host !== c.host) || (b.enabled !== undefined && b.enabled !== c.enabled);
+    if (b.frontendType && b.frontendType !== c.frontend.type) {
+      const { frontendChoices, PRODUCTS } = require('./frontends');
+      if (!frontendChoices(c).includes(b.frontendType)) return sendJson(res, 400, { error: $t('Diese Betriebsart gibt es für das Gerät nicht', 'This operating mode does not exist for the device') });
+      c.frontend = { type: b.frontendType, product: PRODUCTS[b.frontendType] || b.frontendType };
+      fleet.log(dev.id, 'info', $t(`Betriebsart geändert: ${c.frontend.product}`, `Operating mode changed: ${c.frontend.product}`));
+    }
     for (const k of ['name', 'host', 'ports', 'settings', 'marginsMm', 'speed', 'presets', 'defaultTicket', 'enabled', 'finisher', 'supplies', 'roll', 'sheet', 'duplex', 'color']) if (b[k] !== undefined) c[k] = b[k];
     fleet.saveNow();
     if (restart) await startDeviceInterfaces(fleet, dev);
@@ -124,7 +144,7 @@ function buildApi(fleet, ctl) {
     const src = fleet.device(p.id);
     const cfg = clone(src.cfg);
     cfg.id = (b.id || `${cfg.id}-${Math.random().toString(36).slice(2, 6)}`).replace(/[^\w-]/g, '');
-    cfg.name = b.name || `${cfg.name} (Kopie)`;
+    cfg.name = b.name || `${cfg.name} ${$t('(Kopie)', '(copy)')}`;
     cfg.ports = {};
     const used = new Set(Array.from(fleet.devices.values()).flatMap((d) => Object.values(d.cfg.ports)));
     const pick = (base) => { let x = base; while (used.has(x)) x++; used.add(x); return x; };
@@ -142,10 +162,16 @@ function buildApi(fleet, ctl) {
     fleet.saveNow();
     sendJson(res, 200, { deleted: p.id });
   });
+  r.add('POST', '/api/quit', async (req, res) => {
+    if (!ctl.quit) return sendJson(res, 400, { error: $t('Beenden ist hier nicht möglich', 'Quitting is not possible here') });
+    sendJson(res, 200, { ok: true });
+    fleet.log(null, 'info', $t('Simulation wird beendet (Steuerzentrale)', 'Simulation is shutting down (control centre)'));
+    setTimeout(() => ctl.quit(), 150);
+  });
   r.add('POST', '/api/reset', async (req, res) => {
     for (const d of fleet.devices.values()) await stopDeviceInterfaces(d);
     for (const f of ['fleet.json', 'media.json']) { try { fs.unlinkSync(fleet.store.file(f)); } catch { /* */ } }
-    sendJson(res, 200, { ok: true, note: 'Bitte Anwendung neu starten, um den Standard-Maschinenpark zu laden.' });
+    sendJson(res, 200, { ok: true, note: $t('Bitte Anwendung neu starten, um den Standard-Maschinenpark zu laden.', 'Please restart the application to load the default machine park.') });
     setTimeout(() => ctl.restart && ctl.restart(), 200);
   });
   r.add('GET', '/api/devices/:id/jobs', (req, res, p) => sendJson(res, 200, fleet.jobsOf(p.id).sort((a, b) => b.id - a.id).map((j) => j.toJSON())));
@@ -154,11 +180,11 @@ function buildApi(fleet, ctl) {
     const raw = await readBody(req);
     const parts = parseMultipart(raw, req.headers['content-type']);
     const file = parts.find((x) => x.filename);
-    if (!file) return sendJson(res, 400, { error: 'Keine Datei' });
+    if (!file) return sendJson(res, 400, { error: $t('Keine Datei', 'No file') });
     const queue = (parts.find((x) => x.name === 'queue') || {}).data?.toString('utf8') || null;
     const ticketPart = parts.find((x) => x.name === 'ticket');
-    const job = fleet.createJob(dev.id, { name: file.filename, user: 'Oberfläche', source: { protocol: 'Upload (Oberfläche)', queue }, queue });
-    if (ticketPart && ticketPart.data.length) applyObject(job, JSON.parse(ticketPart.data.toString('utf8')), 'Upload-Ticket');
+    const job = fleet.createJob(dev.id, { name: file.filename, user: $t('Oberfläche', 'Interface'), source: { protocol: $t('Upload (Oberfläche)', 'Upload (interface)'), queue }, queue });
+    if (ticketPart && ticketPart.data.length) applyObject(job, JSON.parse(ticketPart.data.toString('utf8')), $t('Upload-Ticket', 'Upload ticket'));
     fleet.submit(job, file.data, { filename: file.filename });
     sendJson(res, 200, job.toJSON());
   });
@@ -172,7 +198,7 @@ function buildApi(fleet, ctl) {
     const f = j.file('protokoll.txt');
     if (j.protocol.length) return sendText(res, 200, j.protocolText());
     if (fs.existsSync(f)) return sendFile(res, f);
-    sendText(res, 200, '(kein Protokoll)');
+    sendText(res, 200, $t('(kein Protokoll)', '(no log)'));
   });
   r.add('GET', '/api/jobs/:id/files/:name', (req, res, p) => {
     const j = fleet.job(p.id);
@@ -188,7 +214,7 @@ function buildApi(fleet, ctl) {
   r.add('GET', '/api/media', (req, res) => sendJson(res, 200, Array.from(fleet.catalog.values())));
   r.add('POST', '/api/media', async (req, res) => {
     const m = await body(req);
-    if (!m.id || !m.name || !['sheet', 'roll'].includes(m.kind)) return sendJson(res, 400, { error: 'id, name und kind (sheet|roll) erforderlich' });
+    if (!m.id || !m.name || !['sheet', 'roll'].includes(m.kind)) return sendJson(res, 400, { error: $t('id, name und kind (sheet|roll) erforderlich', 'id, name and kind (sheet|roll) required') });
     for (const k of ['widthMm', 'heightMm', 'lengthM', 'gsm']) if (m[k] != null && m[k] !== '') m[k] = Number(m[k]);
     fleet.catalog.set(m.id, m);
     fleet.saveNow();
@@ -198,10 +224,12 @@ function buildApi(fleet, ctl) {
   r.add('PUT', '/api/settings', async (req, res) => {
     const b = await body(req);
     for (const k of ['timeFactor', 'ghostscript', 'keepJobs', 'publicHost']) if (b[k] !== undefined) fleet.settings[k] = b[k];
+    if (b.lang && ['de', 'en'].includes(b.lang) && b.lang !== fleet.settings.lang) fleet.setLanguage(b.lang);
     const mdnsChanged = b.mdns !== undefined && b.mdns !== fleet.settings.mdns;
     if (b.mdns !== undefined) fleet.settings.mdns = !!b.mdns;
     let restart = false;
     if (b.bindHost && b.bindHost !== fleet.settings.bindHost) { fleet.settings.bindHost = b.bindHost; restart = true; }
+    if (b.addressing && ['ip', 'ports'].includes(b.addressing) && b.addressing !== fleet.settings.addressing) { fleet.settings.addressing = b.addressing; restart = true; }
     fleet.saveNow();
     if (restart) for (const d of fleet.devices.values()) await startDeviceInterfaces(fleet, d);
     if (restart || mdnsChanged) await ctl.mdns.restart();
@@ -218,10 +246,10 @@ function buildApi(fleet, ctl) {
     try {
       if (b.remove) await removeSystemPrinters({ log: (l) => lines.push(l) });
       else await installSystemPrinters(fleet.summary(), { allQueues: !!b.allQueues, raw: !!b.raw, driverless: !!b.driverless, getPpd: (id) => generatePpd(fleet, fleet.device(id)), log: (l) => lines.push(l) });
-      fleet.log(null, 'info', `Systemdrucker ${b.remove ? 'entfernt' : 'eingerichtet'}:\n${lines.join('\n')}`);
+      fleet.log(null, 'info', $t(`Systemdrucker ${b.remove ? 'entfernt' : 'eingerichtet'}:\n${lines.join('\n')}`, `System printers ${b.remove ? 'removed' : 'registered'}:\n${lines.join('\n')}`));
       sendJson(res, 200, { ok: true, output: lines.join('\n') });
     } catch (e) {
-      sendJson(res, 200, { ok: false, error: e.message, output: lines.join('\n'), hint: process.platform === 'win32' ? 'PowerShell als Administrator: vpf drucker-einrichten' : 'Im Terminal: sudo vpf drucker-einrichten' });
+      sendJson(res, 200, { ok: false, error: e.message, output: lines.join('\n'), hint: process.platform === 'win32' ? $t('PowerShell als Administrator: vpf drucker-einrichten', 'PowerShell as administrator: vpf drucker-einrichten') : $t('Im Terminal: sudo vpf drucker-einrichten', 'In the terminal: sudo vpf drucker-einrichten') });
     }
   });
   r.add('GET', '/api/events', (req, res) => {
@@ -240,13 +268,15 @@ async function startServer(opts = {}) {
   const overrides = {};
   if (opts.timeFactor != null) overrides.timeFactor = opts.timeFactor;
   if (opts.bindHost) overrides.bindHost = opts.bindHost;
+  if (opts.addressing) overrides.addressing = opts.addressing;
   if (opts.basePorts) overrides.basePorts = opts.basePorts;
   const fleet = new Fleet(store, overrides);
+  if (opts.addressing) fleet.saveNow(); // Adressierungsart dauerhaft merken
   const uiPort = opts.port || fleet.settings.uiPort;
   const uiHost = opts.uiHost || fleet.settings.uiHost || '127.0.0.1';
   fleet.uiUrl = `http://${uiHost === '0.0.0.0' ? '127.0.0.1' : uiHost}:${uiPort}`;
   setupJmfNotifications(fleet);
-  const ctl = { hot: new HotFolders(fleet), mdns: new MdnsResponder(fleet), restart: opts.onRestart };
+  const ctl = { hot: new HotFolders(fleet), mdns: new MdnsResponder(fleet), restart: opts.onRestart, quit: opts.onQuit };
   fleet.mdns = ctl.mdns;
   const api = buildApi(fleet, ctl);
 
@@ -256,23 +286,23 @@ async function startServer(opts = {}) {
     try {
       if (p.startsWith('/api/')) {
         const m = api.match(req.method, p);
-        if (!m) return sendJson(res, 404, { error: 'Unbekannter API-Endpunkt' });
+        if (!m) return sendJson(res, 404, { error: $t('Unbekannter API-Endpunkt', 'Unknown API endpoint') });
         return await m.fn(req, res, m.params);
       }
       const f = path.join(UI_DIR, p === '/' ? 'index.html' : path.normalize(p).replace(/^([/\\])+/, ''));
-      if (!f.startsWith(UI_DIR)) return sendText(res, 403, 'Verboten');
+      if (!f.startsWith(UI_DIR)) return sendText(res, 403, $t('Verboten', 'Forbidden'));
       return sendFile(res, f);
     } catch (e) {
       sendJson(res, e.status || 500, { error: e.message });
     }
   });
   const main = await listen(server, uiHost, uiPort);
-  if (main.error) throw new Error(`Oberfläche: ${main.error}`);
+  if (main.error) throw new Error($t(`Oberfläche: ${main.error}`, `Interface: ${main.error}`));
   for (const d of fleet.devices.values()) await startDeviceInterfaces(fleet, d);
   ctl.hot.start();
   if (opts.mdns !== false) ctl.mdns.start();
   fleet.start();
-  fleet.log(null, 'info', `Simulation gestartet – Oberfläche ${fleet.uiUrl}, Daten in ${store.dir}`);
+  fleet.log(null, 'info', $t(`Simulation gestartet – Oberfläche ${fleet.uiUrl}, Daten in ${store.dir}`, `Simulation started – interface ${fleet.uiUrl}, data in ${store.dir}`));
   return {
     fleet, url: fleet.uiUrl, server,
     async close() {

@@ -1,5 +1,6 @@
 'use strict';
 // JDF/JMF (CIP4) – Teilmenge, wie sie Front-Ends (Fiery JDF, PRISMAsync, FreeFlow) für die Job-Übergabe nutzen.
+const { $t, $tp, $lazy } = require('../i18n.js');
 const fs = require('fs');
 const path = require('path');
 const { parseXml, attr, find, findAll, child, esc } = require('../util/xml');
@@ -44,7 +45,7 @@ function applyJdf(job, jdf, fleet, dev) {
   job.jdfJobId = attr(jdf, 'JobID') || null;
   if (attr(jdf, 'DescriptiveName')) setTicket(job, 'jobName', attr(jdf, 'DescriptiveName'), src('DescriptiveName'));
   const types = attr(jdf, 'Types') || attr(jdf, 'Type');
-  if (types) job.addLog('TICKET', `JDF-Knoten Typ: ${types}`);
+  if (types) job.addLog('TICKET', $t(`JDF-Knoten Typ: ${types}`, `JDF node types: ${types}`));
   const media = find(jdf, 'Media');
   if (media) {
     const dim = (attr(media, 'Dimension') || '').split(/\s+/).map(Number).filter((x) => !isNaN(x));
@@ -97,7 +98,7 @@ function applyJdf(job, jdf, fleet, dev) {
   if (tp) setTicket(job, 'finishing.trimMm', 3, src(tp.local));
   for (const n of ['BindingIntent', 'LaminatingParams', 'CoverApplicationParams', 'InsertingParams', 'ImageSetterParams', 'InterpretingParams', 'ColorantControl']) {
     const node = find(jdf, n);
-    if (node) job.addLog('TICKET', `JDF ${n} vorhanden – von der Simulation nicht ausgewertet`);
+    if (node) job.addLog('TICKET', $t(`JDF ${n} vorhanden – von der Simulation nicht ausgewertet`, `JDF ${n} present – not evaluated by the simulation`));
   }
   const rl = findAll(jdf, 'RunList').map((r) => find(r, 'FileSpec')).find((f) => f && attr(f, 'URL'));
   return rl ? attr(rl, 'URL') : null;
@@ -117,7 +118,7 @@ async function loadUrl(url, parts, baseDir) {
   }
   if (/^https?:/.test(url)) {
     const r = await fetch(url);
-    if (!r.ok) throw new Error(`HTTP ${r.status} beim Laden von ${url}`);
+    if (!r.ok) throw new Error($t(`HTTP ${r.status} beim Laden von ${url}`, `HTTP ${r.status} while loading ${url}`));
     return { data: Buffer.from(await r.arrayBuffer()), name: url.split('/').pop() };
   }
   if (baseDir) { const f = path.resolve(baseDir, decodeURIComponent(url)); return { data: fs.readFileSync(f), name: path.basename(f) }; }
@@ -136,7 +137,7 @@ async function handleJmf(fleet, dev, req, body) {
     jmfText = jp ? jp.data.toString('utf8') : '';
   } else jmfText = body.toString('utf8');
   const root = parseXml(jmfText);
-  if (!root) return { status: 400, xml: jmfWrap(dev, '  <Response ReturnCode="1"><Notification Class="Error"><Comment>Kein JMF</Comment></Notification></Response>') };
+  if (!root) return { status: 400, xml: jmfWrap(dev, $t('  <Response ReturnCode="1"><Notification Class="Error"><Comment>Kein JMF</Comment></Notification></Response>', '  <Response ReturnCode="1"><Notification Class="Error"><Comment>No JMF</Comment></Notification></Response>')) };
   // Direkt ein JDF gesendet? (manche Clients posten JDF ohne JMF-Umschlag)
   if (root.local === 'JDF') {
     const j = await submitJdf(fleet, dev, root, parts, null, remote, { Hold: false });
@@ -147,7 +148,7 @@ async function handleJmf(fleet, dev, req, body) {
     const type = attr(msg, 'Type');
     const family = msg.local;
     const title = `JMF ${family} ${type}`;
-    dev.trace('jmf', 'in', `${title} von ${remote}`, jmfText.length < 8000 ? jmfText : jmfText.slice(0, 8000) + '…', ['QueueStatus', 'Status', 'KnownMessages'].includes(type));
+    dev.trace('jmf', 'in', $t(`${title} von ${remote}`, `${title} from ${remote}`), jmfText.length < 8000 ? jmfText : jmfText.slice(0, 8000) + '…', ['QueueStatus', 'Status', 'KnownMessages'].includes(type));
     try {
       switch (type) {
         case 'KnownMessages': {
@@ -170,13 +171,13 @@ async function handleJmf(fleet, dev, req, body) {
           const qsp = find(msg, 'QueueSubmissionParams');
           const url = qsp && attr(qsp, 'URL');
           const loaded = await loadUrl(url, parts, null);
-          if (!loaded) { out.push(response(msg, type, 3, '', `JDF unter ${url} nicht gefunden`)); break; }
+          if (!loaded) { out.push(response(msg, type, 3, '', $t(`JDF unter ${url} nicht gefunden`, `JDF not found at ${url}`))); break; }
           const jdf = parseXml(loaded.data.toString('utf8'));
           const opts = { Hold: qsp && attr(qsp, 'Hold') === 'true', Priority: qsp && attr(qsp, 'Priority'), ReturnJMF: qsp && (attr(qsp, 'ReturnJMF') || attr(qsp, 'ReturnURL')) };
           const baseDir = url.startsWith('file:') ? path.dirname(decodeURIComponent(url.replace(/^file:\/\/(localhost)?/, '')).replace(/^\/([A-Za-z]:)/, '$1')) : null;
           const j = await submitJdf(fleet, dev, jdf, parts, baseDir, remote, opts, jmfText);
           const xml = response(msg, type, 0, queueEntryXml(j).replace(/^ {6}/, '    '));
-          j.addProtocol('out', 'JMF-Antwort SubmitQueueEntry', xml);
+          j.addProtocol('out', $t('JMF-Antwort SubmitQueueEntry', 'JMF response SubmitQueueEntry'), xml);
           out.push(xml);
           break;
         }
@@ -186,39 +187,39 @@ async function handleJmf(fleet, dev, req, body) {
           const action = { AbortQueueEntry: 'cancel', RemoveQueueEntry: 'delete', HoldQueueEntry: 'hold', ResumeQueueEntry: 'release' }[type];
           try {
             const j = fleet.jobAction(Number(id), action);
-            j.addProtocol && j.addProtocol('in', `JMF ${type} von ${remote}`, jmfText);
+            j.addProtocol && j.addProtocol('in', $t(`JMF ${type} von ${remote}`, `JMF ${type} from ${remote}`), jmfText);
             out.push(response(msg, type, 0, action === 'delete' ? '' : queueEntryXml(j).replace(/^ {6}/, '    ')));
           } catch (e) { out.push(response(msg, type, 105, '', e.message)); }
           break;
         }
         default:
-          out.push(response(msg, type || family, 5, '', `${family} ${type} wird von der Simulation nicht unterstützt`));
+          out.push(response(msg, type || family, 5, '', $t(`${family} ${type} wird von der Simulation nicht unterstützt`, `${family} ${type} is not supported by the simulation`)));
       }
     } catch (e) {
       out.push(response(msg, type, 1, '', e.message));
     }
   }
   const xml = jmfWrap(dev, out.join('\n'));
-  dev.trace('jmf', 'out', 'JMF-Antwort', xml, true);
+  dev.trace('jmf', 'out', $t('JMF-Antwort', 'JMF response'), xml, true);
   return { status: 200, xml };
 }
 
 async function submitJdf(fleet, dev, jdf, parts, baseDir, remote, opts, jmfText) {
   const job = fleet.createJob(dev.id, { name: attr(jdf, 'DescriptiveName') || null, source: { protocol: 'JMF/JDF', remote, queue: dev.queues[0].name } });
-  if (jmfText) job.addProtocol('in', `JMF SubmitQueueEntry von ${remote}`, jmfText);
+  if (jmfText) job.addProtocol('in', $t(`JMF SubmitQueueEntry von ${remote}`, `JMF SubmitQueueEntry from ${remote}`), jmfText);
   const jdfXml = parts.find((p) => /jdf/i.test(p.contentType));
-  job.addProtocol('in', 'JDF-Jobticket', jdfXml ? jdfXml.data.toString('utf8').slice(0, 20000) : '(per URL geladen)');
+  job.addProtocol('in', $t('JDF-Jobticket', 'JDF job ticket'), jdfXml ? jdfXml.data.toString('utf8').slice(0, 20000) : $t('(per URL geladen)', '(loaded via URL)'));
   const url = applyJdf(job, jdf, fleet, dev);
   if (opts.Hold) setTicket(job, 'hold', true, 'JMF QueueSubmissionParams/@Hold');
   if (opts.Priority) setTicket(job, 'priority', Number(opts.Priority), 'JMF QueueSubmissionParams/@Priority');
-  if (opts.ReturnJMF) { job.notify.push({ type: 'jmf', url: opts.ReturnJMF }); job.addLog('EMPFANG', `Rückmeldung (ReturnJMF) an ${opts.ReturnJMF} nach Abschluss`); }
+  if (opts.ReturnJMF) { job.notify.push({ type: 'jmf', url: opts.ReturnJMF }); job.addLog('EMPFANG', $t(`Rückmeldung (ReturnJMF) an ${opts.ReturnJMF} nach Abschluss`, `Response (ReturnJMF) to ${opts.ReturnJMF} after completion`)); }
   const doc = await loadUrl(url, parts, baseDir);
   if (!doc) {
-    job.error('EMPFANG', `RunList-Datei ${url || '(keine)'} nicht ladbar`);
-    job.setState('aborted', ['job-data-insufficient'], 'Dokument aus JDF-RunList nicht gefunden');
+    job.error('EMPFANG', $t(`RunList-Datei ${url || '(keine)'} nicht ladbar`, `RunList file ${url || '(none)'} cannot be loaded`));
+    job.setState('aborted', ['job-data-insufficient'], $t('Dokument aus JDF-RunList nicht gefunden', 'Document from JDF RunList not found'));
     return job;
   }
-  job.addLog('EMPFANG', `Dokument aus RunList: ${url}`);
+  job.addLog('EMPFANG', $t(`Dokument aus RunList: ${url}`, `Document from RunList: ${url}`));
   fleet.submit(job, doc.data, { filename: doc.name });
   return job;
 }
@@ -233,9 +234,9 @@ function setupJmfNotifications(fleet) {
       const xml = jmfWrap(dev, `  <Command ID="C${rid++}" Type="ReturnQueueEntry">\n    <ReturnQueueEntryParams QueueEntryID="${job.id}" ${job.state === 'completed' ? 'Completed' : 'Aborted'}="${esc(job.jdfJobId || String(job.id))}"/>\n  </Command>`);
       try {
         const r = await fetch(n.url, { method: 'POST', headers: { 'Content-Type': 'application/vnd.cip4-jmf+xml' }, body: xml });
-        job.addProtocol('out', `JMF ReturnQueueEntry an ${n.url} → HTTP ${r.status}`, xml);
+        job.addProtocol('out', $t(`JMF ReturnQueueEntry an ${n.url} → HTTP ${r.status}`, `JMF ReturnQueueEntry to ${n.url} → HTTP ${r.status}`), xml);
       } catch (e) {
-        job.warn('STATUS', `ReturnJMF an ${n.url} fehlgeschlagen: ${e.message}`);
+        job.warn('STATUS', $t(`ReturnJMF an ${n.url} fehlgeschlagen: ${e.message}`, `ReturnJMF to ${n.url} failed: ${e.message}`));
       }
       job.save();
     }

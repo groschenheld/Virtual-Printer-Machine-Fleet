@@ -1,6 +1,7 @@
 'use strict';
 // Print & Cut (Roland TrueVIS / BN2 mit VersaWorks): Nesting auf der Rolle, Schnittmarken,
 // Konturschnitt aus CutContour/PerfCutContour, Querschnitt.
+const { $t, $tp, $lazy } = require('../../i18n.js');
 const { mm2pt, pt2mm, r1, fmtSize, M } = require('../../util/misc');
 const { place, newSurface } = require('./common');
 const { selectRoll } = require('../media');
@@ -23,13 +24,13 @@ function imposePrintCut(ctx) {
   const markOff = withMarks ? cap.markOffsetMm || 10 : 0;
   const markSize = withMarks ? cap.markSizeMm || 10 : 0;
   const markSpace = withMarks ? markOff + markSize : 0;
-  const modeDe = { contour: 'Drucken & Konturschneiden', trimbox: 'Drucken & Schneiden an der TrimBox', 'cut-only': 'Nur Schneiden', none: 'Nur Drucken', 'print-only': 'Nur Drucken' };
-  job.addLog('AUSSCHUSS', `VersaWorks-Auftrag: ${modeDe[mode] || mode}; Schnittmarken ${withMarks ? 'an' : 'aus'}; Nutzenabstand ${gap} mm; ${ticket.copies} Exemplar(e)`);
+  const modeDe = { contour: $t('Drucken & Konturschneiden', 'Print & contour cut'), trimbox: $t('Drucken & Schneiden an der TrimBox', 'Print & cut at the TrimBox'), 'cut-only': $t('Nur Schneiden', 'Cut only'), none: $t('Nur Drucken', 'Print only'), 'print-only': $t('Nur Drucken', 'Print only') };
+  job.addLog('AUSSCHUSS', $t(`VersaWorks-Auftrag: ${modeDe[mode] || mode}; Schnittmarken ${withMarks ? 'an' : 'aus'}; Nutzenabstand ${gap} mm; ${ticket.copies} Exemplar(e)`, `VersaWorks job: ${modeDe[mode] || mode}; crop marks ${withMarks ? 'on' : 'off'}; gap ${gap} mm; ${ticket.copies} copy/copies`));
 
   // Nutzen sammeln
   const items = [];
   for (let c = 0; c < ticket.copies; c++) for (const pg of pages) items.push({ pg, copy: c + 1 });
-  if (items.length > 500) { job.warn('AUSSCHUSS', `${items.length} Nutzen – Darstellung auf 500 begrenzt`); items.length = 500; }
+  if (items.length > 500) { job.warn('AUSSCHUSS', $t(`${items.length} Nutzen – Darstellung auf 500 begrenzt`, `${items.length} items – display limited to 500`)); items.length = 500; }
   const dimsOf = (pg) => {
     const b = pg.bleed || pg.crop;
     const w = pt2mm(b[2] - b[0]), h = pt2mm(b[3] - b[1]);
@@ -55,7 +56,7 @@ function imposePrintCut(ctx) {
       const score = (fitsRow ? 0 : 1e6) + (fitsRow ? Math.max(0, h - row.h) : h) + rot * 0.001;
       if (!best || score < best.score) best = { rot, w, h, score, fitsRow };
     }
-    if (!best) return { ok: false, media: { ok: false, reason: 'media-needed', text: `Nutzen ${fmtSize(w0, h0)} breiter als nutzbare Breite ${r1(usable)} mm` } };
+    if (!best) return { ok: false, media: { ok: false, reason: 'media-needed', text: $t(`Nutzen ${fmtSize(w0, h0)} breiter als nutzbare Breite ${r1(usable)} mm`, `Item ${fmtSize(w0, h0)} wider than usable width ${r1(usable)} mm`) } };
     if (!best.fitsRow) { row = { items: [], used: -gap, h: 0 }; rows.push(row); }
     row.items.push({ ...it, rot: best.rot, w: best.w, h: best.h, x: row.used + gap });
     row.used += gap + best.w;
@@ -65,7 +66,7 @@ function imposePrintCut(ctx) {
   const areaW = Math.max(...rows.map((r) => r.used));
   const lenMm = areaH + 2 * (mEnd + markSpace);
   const s = newSurface({ id: 'pc1', kind: 'printcut', label: `Print & Cut – ${sel.slot.name}`, wPt: mm2pt(W), hPt: mm2pt(lenMm), slotId: sel.slot.id, mediaId: sel.media.id, mediaName: sel.media.name, sheetNo: 1, feed: 'up' });
-  s.overlay.areas.push({ x: 0, y: 0, w: mm2pt(mSide), h: s.hPt, kind: 'unprintable', label: 'Andruckrollen' }, { x: s.wPt - mm2pt(mSide), y: 0, w: mm2pt(mSide), h: s.hPt, kind: 'unprintable' });
+  s.overlay.areas.push({ x: 0, y: 0, w: mm2pt(mSide), h: s.hPt, kind: 'unprintable', label: $t('Andruckrollen', 'Pinch rollers') }, { x: s.wPt - mm2pt(mSide), y: 0, w: mm2pt(mSide), h: s.hPt, kind: 'unprintable' });
   const x0 = mSide + markSpace, y0 = mEnd + markSpace; // Ursprung Nutzenbereich (mm)
   let y = y0 + areaH;
   const cutPaths = [];
@@ -97,7 +98,7 @@ function imposePrintCut(ctx) {
     }
     y -= gap;
   }
-  if (noCut && mode === 'contour') job.warn('SCHNITT', `${noCut} Nutzen ohne CutContour/PerfCutContour – werden nur gedruckt, nicht geschnitten (VersaWorks schneidet nur Pfade in diesen Schmuckfarben)`);
+  if (noCut && mode === 'contour') job.warn('SCHNITT', $t(`${noCut} Nutzen ohne CutContour/PerfCutContour – werden nur gedruckt, nicht geschnitten (VersaWorks schneidet nur Pfade in diesen Schmuckfarben)`, `${noCut} item(s) without CutContour/PerfCutContour – printed only, not cut (VersaWorks only cuts paths in these spot colours)`));
   // Schnittmarken (L-förmig an den 4 Ecken + Zwischenmarken)
   let markOrigin = null;
   if (withMarks) {
@@ -117,7 +118,7 @@ function imposePrintCut(ctx) {
       }
     }
     markOrigin = [x0 - markOff, y0 - markOff];
-    job.addLog('SCHNITT', `Schnittmarken: 4 Eckmarken (${markSize} mm, Abstand ${markOff} mm zum Nutzenbereich)${mids ? ` + ${mids} Zwischenmarken-Paar(e) alle ${cap.multiMarkEveryMm} mm` : ''}. Der optische Sensor liest diese Marken vor dem Schneiden und korrigiert Versatz/Schräglauf.`);
+    job.addLog('SCHNITT', $t(`Schnittmarken: 4 Eckmarken (${markSize} mm, Abstand ${markOff} mm zum Nutzenbereich)${mids ? ` + ${mids} Zwischenmarken-Paar(e) alle ${cap.multiMarkEveryMm} mm` : ''}. Der optische Sensor liest diese Marken vor dem Schneiden und korrigiert Versatz/Schräglauf.`, `Crop marks: 4 corner marks (${markSize} mm, ${markOff} mm from the item area)${mids ? ` + ${mids} intermediate mark pair(s) every ${cap.multiMarkEveryMm} mm` : ''}. The optical sensor reads these marks before cutting and corrects offset/skew.`));
   }
   s.overlay.cutPaths = cutPaths.map((c, i) => ({ ...c, n: i + 1 }));
   if (ticket.cut.sheetCut !== false && !ticket.roll.takeUp && mode !== 'none') {
@@ -125,8 +126,8 @@ function imposePrintCut(ctx) {
   }
   s.lengthMm = lenMm;
   s.markOrigin = markOrigin;
-  job.addLog('AUSSCHUSS', `Nesting: ${items.length} Nutzen in ${rows.length} Reihe(n), Nutzenbereich ${r1(areaW)} × ${r1(areaH)} mm auf ${W} mm Rolle (nutzbar ${r1(usable)} mm), Medienverbrauch ${r1(lenMm)} mm, Ausnutzung ${r1((totalArea / (W * lenMm)) * 100)} %`);
-  if (mode === 'contour' || mode === 'trimbox' || mode === 'cut-only') job.addLog('SCHNITT', `Konturschnitt: ${cutCount} Kontur(en)${perfCount ? `, ${perfCount} Perforationsschnitt(e)` : ''}${ticket.cut.sheetCut !== false ? ' + Querschnitt am Jobende' : ''}`);
+  job.addLog('AUSSCHUSS', $t(`Nesting: ${items.length} Nutzen in ${rows.length} Reihe(n), Nutzenbereich ${r1(areaW)} × ${r1(areaH)} mm auf ${W} mm Rolle (nutzbar ${r1(usable)} mm), Medienverbrauch ${r1(lenMm)} mm, Ausnutzung ${r1((totalArea / (W * lenMm)) * 100)} %`, `Nesting: ${items.length} items in ${rows.length} row(s), item area ${r1(areaW)} × ${r1(areaH)} mm on ${W} mm roll (usable ${r1(usable)} mm), media used ${r1(lenMm)} mm, utilisation ${r1((totalArea / (W * lenMm)) * 100)} %`));
+  if (mode === 'contour' || mode === 'trimbox' || mode === 'cut-only') job.addLog('SCHNITT', $t(`Konturschnitt: ${cutCount} Kontur(en)${perfCount ? `, ${perfCount} Perforationsschnitt(e)` : ''}${ticket.cut.sheetCut !== false ? ' + Querschnitt am Jobende' : ''}`, `Contour cut: ${cutCount} contour(s)${perfCount ? `, ${perfCount} perforation cut(s)` : ''}${ticket.cut.sheetCut !== false ? ' + cross cut at job end' : ''}`));
   const cutLen = cutPaths.reduce((a, c) => a + c.subpaths.reduce((b, sp) => {
     const { pts } = flatten(sp);
     let L = 0;

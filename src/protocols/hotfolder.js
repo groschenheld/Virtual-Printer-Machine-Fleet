@@ -1,6 +1,7 @@
 'use strict';
 // Hotfolder je Gerät und Warteschlange/Preset (wie Fiery Hot Folders, VersaWorks- oder Edge-Print-Hotfolder).
 // Optional: Begleitdatei <name>.json (Ticket) oder <name>.jdf (JDF-Ticket) neben der Druckdatei.
+const { $t, $tp, $lazy } = require('../i18n.js');
 const fs = require('fs');
 const path = require('path');
 const { applyObject } = require('../pipeline/ticket');
@@ -20,6 +21,7 @@ class HotFolders {
     const out = [];
     for (const dev of this.fleet.devices.values()) {
       if (!dev.cfg.enabled) continue;
+      if (!dev.fe.features.includes('hotfolder')) continue;
       for (const q of dev.queues) out.push({ dev, queue: q.name, dir: path.join(this.fleet.store.hotDir, dev.id, safeName(q.name)) });
     }
     return out;
@@ -28,7 +30,7 @@ class HotFolders {
     for (const d of this.dirs()) {
       fs.mkdirSync(d.dir, { recursive: true });
       const readme = path.join(d.dir, 'LIESMICH.txt');
-      if (!fs.existsSync(readme)) fs.writeFileSync(readme, `Hotfolder für ${d.dev.cfg.name} – Warteschlange/Preset „${d.queue}".\nDruckdateien (PDF, PS, JPG, PNG, HP-GL) hier ablegen.\nOptional Ticket als <dateiname>.json (Simulationsformat) oder <dateiname>.jdf daneben legen.\nVerarbeitete Dateien landen in _erledigt bzw. _fehler.\n`);
+      if (!fs.existsSync(readme)) fs.writeFileSync(readme, $t(`Hotfolder für ${d.dev.cfg.name} – Warteschlange/Preset „${d.queue}".\nDruckdateien (PDF, PS, JPG, PNG, HP-GL) hier ablegen.\nOptional Ticket als <dateiname>.json (Simulationsformat) oder <dateiname>.jdf daneben legen.\nVerarbeitete Dateien landen in _erledigt bzw. _fehler.\n`, `Hot folder for ${d.dev.cfg.name} – queue/preset “${d.queue}”.\nDrop print files (PDF, PS, JPG, PNG, HP-GL) here.\nOptionally put a ticket next to it as <filename>.json (simulation format) or <filename>.jdf.\nProcessed files end up in _erledigt (done) or _fehler (error).\n`));
     }
     this.timer = setInterval(() => this.scan().catch(() => {}), 1500);
   }
@@ -72,14 +74,14 @@ class HotFolders {
     let job = null;
     try {
       job = fleet.createJob(d.dev.id, { name: base, user: 'hotfolder', source: { protocol: 'Hotfolder', queue: d.queue, path: f }, queue: d.queue });
-      job.addLog('EMPFANG', `Datei „${n}" im Hotfolder ${d.dir} gefunden`);
+      job.addLog('EMPFANG', $t(`Datei „${n}" im Hotfolder ${d.dir} gefunden`, `File “${n}” found in hot folder ${d.dir}`));
       let data;
       if (ext === '.jdf' || ext === '.xml') {
         const jdf = parseXml(fs.readFileSync(f, 'utf8'));
-        job.addProtocol('in', `JDF im Hotfolder: ${n}`, fs.readFileSync(f, 'utf8').slice(0, 20000));
+        job.addProtocol('in', $t(`JDF im Hotfolder: ${n}`, `JDF in hot folder: ${n}`), fs.readFileSync(f, 'utf8').slice(0, 20000));
         const url = applyJdf(job, jdf, fleet, d.dev);
         const df = url && path.resolve(d.dir, decodeURIComponent(url.replace(/^file:\/\/(localhost)?/, '').replace(/^\/([A-Za-z]:)/, '$1')));
-        if (!df || !fs.existsSync(df)) throw new Error(`RunList-Datei ${url} nicht gefunden`);
+        if (!df || !fs.existsSync(df)) throw new Error($t(`RunList-Datei ${url} nicht gefunden`, `RunList file ${url} not found`));
         data = fs.readFileSync(df);
         move('_erledigt', df);
       } else {
@@ -88,8 +90,8 @@ class HotFolders {
           const side = path.join(d.dir, base + sx);
           if (!fs.existsSync(side)) continue;
           const txt = fs.readFileSync(side, 'utf8');
-          job.addProtocol('in', `Begleit-Ticket ${base + sx}`, txt);
-          if (sx === '.json') applyObject(job, JSON.parse(txt), `Hotfolder-Ticket ${base}.json`);
+          job.addProtocol('in', $t(`Begleit-Ticket ${base + sx}`, `Accompanying ticket ${base + sx}`), txt);
+          if (sx === '.json') applyObject(job, JSON.parse(txt), $t(`Hotfolder-Ticket ${base}.json`, `Hot folder ticket ${base}.json`));
           else applyJdf(job, parseXml(txt), fleet, d.dev);
           move('_erledigt', side);
         }
@@ -97,7 +99,7 @@ class HotFolders {
       fleet.submit(job, data, { filename: n });
       move('_erledigt', f);
     } catch (e) {
-      fleet.log(d.dev.id, 'error', `Hotfolder ${d.queue}: ${n} – ${e.message}`);
+      fleet.log(d.dev.id, 'error', $t(`Hotfolder ${d.queue}: ${n} – ${e.message}`, `Hot folder ${d.queue}: ${n} – ${e.message}`));
       if (job) { job.error('EMPFANG', e.message); job.setState('aborted', ['job-data-insufficient'], e.message); }
       move('_fehler', f);
     }

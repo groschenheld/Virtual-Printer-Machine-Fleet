@@ -1,5 +1,6 @@
 'use strict';
 // Erkennung und Normalisierung der Eingangsdaten -> PDF (das "RIP-Eingangsformat" der Simulation).
+const { $t, $tp, $lazy } = require('../i18n.js');
 
 const fs = require('fs');
 const path = require('path');
@@ -28,10 +29,10 @@ function detectFormat(buf) {
   return 'unknown';
 }
 
-const FORMAT_DE = {
-  pdf: 'PDF', postscript: 'PostScript', 'eps-binary': 'EPS (binär)', jpeg: 'JPEG-Bild', png: 'PNG-Bild', 'pwg-raster': 'PWG-Raster (IPP Everywhere)',
-  urf: 'Apple Raster (URF)', tiff: 'TIFF', 'zip/xps': 'XPS/ZIP', pjl: 'PJL', pcl: 'PCL', hpgl: 'HP-GL/2', xml: 'XML', unknown: 'unbekannt',
-};
+const FORMAT_DE = $lazy({
+  pdf: 'PDF', postscript: 'PostScript', 'eps-binary': $tp('EPS (binär)', 'EPS (binary)'), jpeg: $tp('JPEG-Bild', 'JPEG image'), png: $tp('PNG-Bild', 'PNG image'), 'pwg-raster': 'PWG-Raster (IPP Everywhere)',
+  urf: 'Apple Raster (URF)', tiff: 'TIFF', 'zip/xps': 'XPS/ZIP', pjl: 'PJL', pcl: 'PCL', hpgl: 'HP-GL/2', xml: 'XML', unknown: $tp('unbekannt', 'unknown'),
+});
 
 function findGhostscript(configured) {
   const cands = configured ? [configured] : process.platform === 'win32' ? ['gswin64c', 'gswin32c', 'gs'] : ['gs'];
@@ -75,7 +76,7 @@ async function imageToPdf(buf, kind, job) {
   const wPt = (img.width / dpi) * 72, hPt = (img.height / dpi) * 72;
   const page = doc.addPage([wPt, hPt]);
   page.drawImage(img, { x: 0, y: 0, width: wPt, height: hPt });
-  job.addLog('FORMAT', `Bild ${img.width} × ${img.height} px bei ${dpi} dpi → Seite ${r1(pt2mm(wPt))} × ${r1(pt2mm(hPt))} mm (Bildmaß; Zuschnitt auf Printgröße erfolgt im Layout)`);
+  job.addLog('FORMAT', $t(`Bild ${img.width} × ${img.height} px bei ${dpi} dpi → Seite ${r1(pt2mm(wPt))} × ${r1(pt2mm(hPt))} mm (Bildmaß; Zuschnitt auf Printgröße erfolgt im Layout)`, `Image ${img.width} × ${img.height} px at ${dpi} dpi → page ${r1(pt2mm(wPt))} × ${r1(pt2mm(hPt))} mm (image size; cropping to the print size happens in the layout)`));
   return Buffer.from(await doc.save());
 }
 
@@ -119,7 +120,7 @@ function decodePwgRaster(buf, job) {
     pages.push({ hdr, data: out });
     // nächste Seite beginnt direkt mit Header (ohne erneutes "RaS2")
   }
-  job.addLog('FORMAT', `PWG-Raster: ${pages.length} Seite(n), ${pages[0] ? pages[0].hdr.hwRes.join('×') + ' dpi, Farbraum ' + pages[0].hdr.colorSpace + ', ' + pages[0].hdr.bitsPerPixel + ' bit/px' : ''}`);
+  job.addLog('FORMAT', $t(`PWG-Raster: ${pages.length} Seite(n), ${pages[0] ? pages[0].hdr.hwRes.join('×') + ' dpi, Farbraum ' + pages[0].hdr.colorSpace + ', ' + pages[0].hdr.bitsPerPixel + ' bit/px' : ''}`, `PWG raster: ${pages.length} page(s), ${pages[0] ? pages[0].hdr.hwRes.join('×') + ' dpi, colour space ' + pages[0].hdr.colorSpace + ', ' + pages[0].hdr.bitsPerPixel + ' bit/px' : ''}`));
   return pages;
 }
 
@@ -146,7 +147,7 @@ async function pwgToPdf(buf, job) {
         const k = p.data[i + 3] / 255;
         pix[o] = 255 * (1 - p.data[i] / 255) * (1 - k); pix[o + 1] = 255 * (1 - p.data[i + 1] / 255) * (1 - k); pix[o + 2] = 255 * (1 - p.data[i + 2] / 255) * (1 - k);
       }
-    } else throw new Error(`PWG-Raster mit ${bitsPerPixel} bit/px wird nicht unterstützt`);
+    } else throw new Error($t(`PWG-Raster mit ${bitsPerPixel} bit/px wird nicht unterstützt`, `PWG raster with ${bitsPerPixel} bit/px is not supported`));
     const png = encodePng(width, height, channels, pix.subarray(0, width * height * channels));
     const img = await doc.embedPng(png);
     const [wPt, hPt] = p.hdr.pageSize[0] ? p.hdr.pageSize : [(width / p.hdr.hwRes[0]) * 72, (height / p.hdr.hwRes[1]) * 72];
@@ -196,7 +197,7 @@ async function hpglToPdf(buf, job) {
       default: if (/^[A-Z]{2}$/.test(op)) unsupported.add(op);
     }
   }
-  if (unsupported.size) job.warn('FORMAT', `HP-GL/2-Befehle nicht simuliert: ${Array.from(unsupported).join(', ')} (Darstellung kann abweichen)`);
+  if (unsupported.size) job.warn('FORMAT', $t(`HP-GL/2-Befehle nicht simuliert: ${Array.from(unsupported).join(', ')} (Darstellung kann abweichen)`, `HP-GL/2 commands not simulated: ${Array.from(unsupported).join(', ')} (rendering may differ)`));
   let minX = 0, minY = 0, maxX = 0, maxY = 0;
   for (const g of segs) { minX = Math.min(minX, g.x1, g.x2); minY = Math.min(minY, g.y1, g.y2); maxX = Math.max(maxX, g.x1, g.x2); maxY = Math.max(maxY, g.y1, g.y2); }
   let wMm, hMm;
@@ -213,7 +214,7 @@ async function hpglToPdf(buf, job) {
   }
   const font = await doc.embedFont(StandardFonts.Helvetica);
   for (const l of labels) page.drawText(l.text.replace(/[^\x20-\x7e]/g, ''), { x: toPt(l.x, minX), y: toPt(l.y, minY), size: 8, font });
-  job.addLog('FORMAT', `HP-GL/2 interpretiert: ${segs.length} Vektoren, ${labels.length} Beschriftungen, Plotgröße ${r1(wMm)} × ${r1(hMm)} mm${plotSize ? ' (aus PS-Befehl)' : ' (aus Zeichnungsgrenzen + 5 mm)'}`);
+  job.addLog('FORMAT', $t(`HP-GL/2 interpretiert: ${segs.length} Vektoren, ${labels.length} Beschriftungen, Plotgröße ${r1(wMm)} × ${r1(hMm)} mm${plotSize ? ' (aus PS-Befehl)' : ' (aus Zeichnungsgrenzen + 5 mm)'}`, `HP-GL/2 interpreted: ${segs.length} vectors, ${labels.length} labels, plot size ${r1(wMm)} × ${r1(hMm)} mm${plotSize ? ' (from PS command)' : ' (from drawing extents + 5 mm)'}`));
   return Buffer.from(await doc.save());
 }
 
@@ -224,14 +225,14 @@ async function hpglToPdf(buf, job) {
 async function normalize(buf, job, settings) {
   let format = detectFormat(buf);
   let pjl = null;
-  job.addLog('FORMAT', `Datenstrom ${buf.length.toLocaleString('de-DE')} Bytes, erkannt: ${FORMAT_DE[format] || format}`);
+  job.addLog('FORMAT', $t(`Datenstrom ${buf.length.toLocaleString('de-DE')} Bytes, erkannt: ${FORMAT_DE[format] || format}`, `Data stream ${buf.length.toLocaleString('en-US')} bytes, detected: ${FORMAT_DE[format] || format}`));
   if (format === 'pjl') {
     const u = unwrapPjl(buf);
     pjl = parsePjlCommands(u.pjl.commands.concat(u.pjl.trailer));
-    job.addProtocol('in', `PJL-Kopf (${u.pjl.commands.length} Befehle${u.pjl.language ? ', ENTER LANGUAGE=' + u.pjl.language : ''})`, u.pjl.commands.concat(u.pjl.trailer.length ? ['--- nach Daten ---', ...u.pjl.trailer] : []).join('\n'));
+    job.addProtocol('in', $t(`PJL-Kopf (${u.pjl.commands.length} Befehle${u.pjl.language ? ', ENTER LANGUAGE=' + u.pjl.language : ''})`, `PJL header (${u.pjl.commands.length} commands${u.pjl.language ? ', ENTER LANGUAGE=' + u.pjl.language : ''})`), u.pjl.commands.concat(u.pjl.trailer.length ? [$t('--- nach Daten ---', '--- after data ---'), ...u.pjl.trailer] : []).join('\n'));
     buf = u.payload;
     format = detectFormat(buf);
-    job.addLog('FORMAT', `Nach PJL-Kopf: ${FORMAT_DE[format] || format}${u.pjl.language ? ` (angekündigt: ${u.pjl.language})` : ''}`);
+    job.addLog('FORMAT', $t(`Nach PJL-Kopf: ${FORMAT_DE[format] || format}${u.pjl.language ? $t(` (angekündigt: ${u.pjl.language})`, ` (announced: ${u.pjl.language})`) : ''}`, `After PJL header: ${FORMAT_DE[format] || format}${u.pjl.language ? ` (announced: ${u.pjl.language})` : ''}`));
   }
   let pdfBytes;
   switch (format) {
@@ -245,15 +246,15 @@ async function normalize(buf, job, settings) {
       fs.writeFileSync(inF, buf);
       let ok = false, lastErr = null;
       for (const exe of findGhostscript(settings.ghostscript)) {
-        try { await runGs(exe, inF, outF); ok = true; job.addLog('FORMAT', `PostScript mit Ghostscript (${exe}) nach PDF gewandelt – entspricht dem PS-Interpreter des Front-Ends`); break; } catch (e) { lastErr = e; }
+        try { await runGs(exe, inF, outF); ok = true; job.addLog('FORMAT', $t(`PostScript mit Ghostscript (${exe}) nach PDF gewandelt – entspricht dem PS-Interpreter des Front-Ends`, `PostScript converted to PDF with Ghostscript (${exe}) – corresponds to the PS interpreter of the front end`)); break; } catch (e) { lastErr = e; }
       }
-      if (!ok) throw new Error('PostScript empfangen, aber kein Ghostscript gefunden (in den Einstellungen Pfad zu gs/gswin64c angeben). ' + (lastErr && lastErr.code === 'ENOENT' ? '' : String(lastErr?.stderr || lastErr?.message || '')));
+      if (!ok) throw new Error($t('PostScript empfangen, aber kein Ghostscript gefunden (in den Einstellungen Pfad zu gs/gswin64c angeben). ', 'PostScript received, but no Ghostscript found (set the path to gs/gswin64c in the settings). ') + (lastErr && lastErr.code === 'ENOENT' ? '' : String(lastErr?.stderr || lastErr?.message || '')));
       pdfBytes = fs.readFileSync(outF);
       fs.rmSync(tmp, { recursive: true, force: true });
       break;
     }
     default:
-      throw new Error(`Datenformat ${FORMAT_DE[format] || format} wird von der Simulation nicht gerastert. Unterstützt: PDF, PostScript (mit Ghostscript), JPEG, PNG, PWG-Raster, HP-GL/2.`);
+      throw new Error($t(`Datenformat ${FORMAT_DE[format] || format} wird von der Simulation nicht gerastert. Unterstützt: PDF, PostScript (mit Ghostscript), JPEG, PNG, PWG-Raster, HP-GL/2.`, `Data format ${FORMAT_DE[format] || format} is not rasterized by the simulation. Supported: PDF, PostScript (with Ghostscript), JPEG, PNG, PWG raster, HP-GL/2.`));
   }
   return { pdfBytes, format, pjl };
 }

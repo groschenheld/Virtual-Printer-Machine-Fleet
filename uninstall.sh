@@ -13,13 +13,36 @@ set -uo pipefail
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NAME="virtual-print-fleet"
 PURGE=0; YES=0
+# Sprache / language: --lang de|en, sonst Systemsprache
+VPF_LANG_=""; prev=""
+for a in "$@"; do case "$a" in --lang=*) VPF_LANG_="${a#--lang=}" ;; esac; [[ "$prev" == "--lang" ]] && VPF_LANG_="$a"; prev="$a"; done
+if [[ -z "$VPF_LANG_" ]]; then case "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" in de*|C|C.*|POSIX|"") VPF_LANG_="de" ;; *) VPF_LANG_="en" ;; esac; fi
+[[ "$VPF_LANG_" == en* ]] && VPF_LANG_="en" || VPF_LANG_="de"
+t() { if [[ "$VPF_LANG_" == en ]]; then printf '%s' "$2"; else printf '%s' "$1"; fi; }
+skip=0
 for a in "$@"; do
+  if [[ $skip -eq 1 ]]; then skip=0; continue; fi
   case "$a" in
     --purge) PURGE=1 ;;
     -y|--yes) YES=1 ;;
-    -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
+    --lang) skip=1 ;;
+    --lang=*) ;;
+    -h|--help)
+      if [[ "$VPF_LANG_" == en ]]; then cat <<'EOT'
+Virtual Print Fleet – uninstall
+
+  ./uninstall.sh            remove the "vpf" command, menu entry, icon and service
+  sudo ./uninstall.sh       also remove a system-wide installation and leftovers under /root
+  ./uninstall.sh --purge    also delete data (jobs, hot folders, machine park settings),
+                            node_modules, samples and dist in the project folder
+  -y / --yes                without confirmation
+
+The project folder itself (source code) is always kept – delete it by hand if needed.
+EOT
+      else sed -n '2,10p' "$0"; fi
+      exit 0 ;;
     "") ;;
-    *) echo "Unbekannte Option: $a"; exit 1 ;;
+    *) echo "$(t "Unbekannte Option" "Unknown option"): $a"; exit 1 ;;
   esac
 done
 
@@ -39,7 +62,7 @@ removed=0
 rm_if() {
   for p in "$@"; do
     if [[ -e "$p" || -L "$p" ]]; then
-      if rm -rf -- "$p" 2>/dev/null; then c_ok "entfernt: $p"; removed=$((removed+1)); else c_warn "keine Berechtigung: $p (mit sudo ausführen)"; fi
+      if rm -rf -- "$p" 2>/dev/null; then c_ok "$(t "entfernt" "removed"): $p"; removed=$((removed+1)); else c_warn "$(t "keine Berechtigung" "permission denied"): $p ($(t "mit sudo ausführen" "run with sudo"))"; fi
     fi
   done
 }
@@ -51,8 +74,9 @@ if command -v systemctl >/dev/null 2>&1; then
       systemctl disable --now "$NAME.service" >/dev/null 2>&1 || true
       rm_if "/etc/systemd/system/$NAME.service"
       systemctl daemon-reload >/dev/null 2>&1 || true
+      rm_if "/etc/polkit-1/rules.d/49-$NAME.rules"
     else
-      c_warn "Systemdienst /etc/systemd/system/$NAME.service gefunden – zum Entfernen: sudo ./uninstall.sh"
+      c_warn "$(t "Systemdienst" "System service") /etc/systemd/system/$NAME.service $(t "gefunden – zum Entfernen" "found – to remove it"): sudo ./uninstall.sh"
     fi
   fi
   for h in "${HOMES[@]}"; do
@@ -69,30 +93,40 @@ if command -v systemctl >/dev/null 2>&1; then
     rm_if "$unit"
   done
 fi
+[[ $IS_ROOT -eq 1 ]] && rm_if "/etc/polkit-1/rules.d/49-$NAME.rules"
 # Noch laufende Simulationen aus diesem Projektordner beenden
 if command -v pgrep >/dev/null 2>&1; then
   pids="$(pgrep -f "$APP_DIR/src/cli.js" 2>/dev/null | grep -v "^$$\$" || true)"
   if [[ -n "$pids" ]]; then
-    kill $pids 2>/dev/null && c_ok "laufende Simulation beendet (PID $(echo $pids | tr '\n' ' '))" || c_warn "laufende Simulation (PID $pids) konnte nicht beendet werden"
+    kill $pids 2>/dev/null && c_ok "$(t "laufende Simulation/Steuerzentrale beendet" "running simulation/control centre stopped") (PID $(echo $pids | tr '\n' ' '))" || c_warn "$(t "laufende Simulation konnte nicht beendet werden" "running simulation could not be stopped") (PID $pids)"
   fi
 fi
 
 # ------------------------------------------------------------------ Systemdrucker (CUPS)
 if command -v lpstat >/dev/null 2>&1 && command -v lpadmin >/dev/null 2>&1; then
-  for p in $(lpstat -v 2>/dev/null | sed -n 's/^[^ ]* [^ ]* \(VPF_[^:]*\):.*/\1/p'); do
-    if lpadmin -x "$p" 2>/dev/null; then c_ok "Systemdrucker entfernt: $p"; removed=$((removed+1)); else c_warn "Systemdrucker $p: keine Berechtigung (sudo ./uninstall.sh)"; fi
+  for p in $(LC_ALL=C lpstat -e 2>/dev/null | grep '^VPF_'); do
+    if lpadmin -x "$p" 2>/dev/null; then c_ok "$(t "Systemdrucker entfernt" "System printer removed"): $p"; removed=$((removed+1)); else c_warn "$(t "Systemdrucker" "System printer") $p: $(t "keine Berechtigung" "permission denied") (sudo ./uninstall.sh)"; fi
   done
 fi
+
+# Gespeicherte Druckoptionen/Standarddrucker für VPF-Drucker (lpoptions) entfernen
+for f in /etc/cups/lpoptions "${HOMES[@]/%//.cups/lpoptions}"; do
+  [[ -f "$f" ]] && grep -qE '^(Default|Dest) VPF_' "$f" 2>/dev/null || continue
+  if sed -i -E '/^(Default|Dest) VPF_/d' "$f" 2>/dev/null; then c_ok "$(t "Druckoptionen der VPF-Drucker entfernt" "Print options of the VPF printers removed"): $f"; removed=$((removed+1)); else c_warn "$(t "keine Berechtigung" "permission denied"): $f"; fi
+done
+# Reste temporärer Treiberdateien (nur nach Abbruch vorhanden)
+for d in "${TMPDIR:-/tmp}"/vpf-ppd-* "${TMPDIR:-/tmp}"/vpf-chk-*; do [[ -e "$d" ]] && rm_if "$d"; done
 
 # ------------------------------------------------------------------ Befehl, Startmenü, Symbol
 if [[ $IS_ROOT -eq 1 ]]; then
   rm_if /usr/local/bin/vpf "/usr/share/applications/$NAME.desktop" "/usr/share/icons/hicolor/512x512/apps/$NAME.png"
 elif [[ -e /usr/local/bin/vpf || -e "/usr/share/applications/$NAME.desktop" ]]; then
-  c_warn "Systemweite Installation gefunden (/usr/local/bin/vpf) – zum Entfernen: sudo ./uninstall.sh"
+  c_warn "$(t "Systemweite Installation gefunden (/usr/local/bin/vpf) – zum Entfernen" "System-wide installation found (/usr/local/bin/vpf) – to remove it"): sudo ./uninstall.sh"
 fi
 for h in "${HOMES[@]}"; do
   rm_if "$h/.local/bin/vpf" "$h/.local/share/applications/$NAME.desktop" "$h/.local/share/icons/hicolor/512x512/apps/$NAME.png"
 done
+command -v gtk-update-icon-cache >/dev/null 2>&1 && { gtk-update-icon-cache -q "$REAL_HOME/.local/share/icons/hicolor" >/dev/null 2>&1; [[ $IS_ROOT -eq 1 ]] && gtk-update-icon-cache -q /usr/share/icons/hicolor >/dev/null 2>&1; } || true
 command -v update-desktop-database >/dev/null 2>&1 && { update-desktop-database "$REAL_HOME/.local/share/applications" >/dev/null 2>&1; [[ $IS_ROOT -eq 1 ]] && update-desktop-database /usr/share/applications >/dev/null 2>&1; } || true
 rm_if "$APP_DIR/.install-info"
 
@@ -105,18 +139,18 @@ if [[ $PURGE -eq 1 ]]; then
   for d in "${DATA_DIRS[@]}" "$APP_DIR/node_modules" "$APP_DIR/samples" "$APP_DIR/dist" "$APP_DIR/package-lock.json"; do [[ -e "$d" ]] && existing+=("$d"); done
   if [[ ${#existing[@]} -gt 0 ]]; then
     echo
-    c_info "Folgendes wird endgültig gelöscht (inkl. aller Jobs, Protokolle und Hotfolder):"
+    c_info "$(t "Folgendes wird endgültig gelöscht (inkl. aller Jobs, Protokolle und Hotfolder):" "The following will be deleted permanently (incl. all jobs, logs and hot folders):")"
     for d in "${existing[@]}"; do echo "     $d"; done
     if [[ $YES -eq 0 ]]; then
-      read -r -p "   Fortfahren? [j/N] " ans
-      [[ "$ans" =~ ^[jJyY]$ ]] || { c_warn "Purge abgebrochen – Daten bleiben erhalten"; existing=(); }
+      read -r -p "   $(t "Fortfahren? [j/N]" "Continue? [y/N]") " ans
+      [[ "$ans" =~ ^[jJyY]$ ]] || { c_warn "$(t "Purge abgebrochen – Daten bleiben erhalten" "Purge cancelled – data is kept")"; existing=(); }
     fi
     rm_if "${existing[@]}"
   fi
 else
-  for h in "${HOMES[@]}"; do [[ -d "$h/.local/share/$NAME" ]] && c_info "Daten bleiben erhalten: $h/.local/share/$NAME  (löschen mit --purge)"; done
+  for h in "${HOMES[@]}"; do [[ -d "$h/.local/share/$NAME" ]] && c_info "$(t "Daten bleiben erhalten" "Data is kept"): $h/.local/share/$NAME  ($(t "löschen mit --purge" "delete with --purge"))"; done
 fi
 
 echo
-if [[ $removed -eq 0 ]]; then c_info "Nichts zu entfernen gefunden."; else c_ok "Deinstallation abgeschlossen."; fi
-echo "   Der Projektordner $APP_DIR bleibt bestehen."
+if [[ $removed -eq 0 ]]; then c_info "$(t "Nichts zu entfernen gefunden." "Nothing found to remove.")"; else c_ok "$(t "Deinstallation abgeschlossen." "Uninstallation complete.")"; fi
+echo "   $(t "Der Projektordner $APP_DIR bleibt bestehen." "The project folder $APP_DIR is kept.")"

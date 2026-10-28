@@ -1,5 +1,6 @@
 'use strict';
 // Desktop-Hülle: startet die Simulation im selben Prozess und zeigt die Oberfläche.
+const { $t, $tp, $lazy } = require('../src/i18n.js');
 const { app, BrowserWindow, Menu, shell, dialog } = require('electron');
 const path = require('path');
 const { startServer } = require('../src/server');
@@ -12,14 +13,14 @@ app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(
 
 function menu(url, dataDir) {
   return Menu.buildFromTemplate([
-    { label: 'Datei', submenu: [
-      { label: 'Datenordner öffnen', click: () => shell.openPath(dataDir) },
-      { label: 'Hotfolder öffnen', click: () => shell.openPath(path.join(dataDir, 'hotfolders')) },
-      { label: 'Oberfläche im Browser öffnen', click: () => shell.openExternal(url) },
+    { label: $t('Datei', 'File'), submenu: [
+      { label: $t('Datenordner öffnen', 'Open data folder'), click: () => shell.openPath(dataDir) },
+      { label: $t('Hotfolder öffnen', 'Open hot folders'), click: () => shell.openPath(path.join(dataDir, 'hotfolders')) },
+      { label: $t('Oberfläche im Browser öffnen', 'Open interface in browser'), click: () => shell.openExternal(url) },
       { type: 'separator' },
-      { role: 'quit', label: 'Beenden' },
+      { role: 'quit', label: $t('Beenden', 'Quit') },
     ] },
-    { label: 'Ansicht', submenu: [{ role: 'reload', label: 'Neu laden' }, { role: 'toggleDevTools', label: 'Entwicklertools' }, { type: 'separator' }, { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'togglefullscreen' }] },
+    { label: $t('Ansicht', 'View'), submenu: [{ role: 'reload', label: $t('Neu laden', 'Reload') }, { role: 'toggleDevTools', label: $t('Entwicklertools', 'Developer tools') }, { type: 'separator' }, { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'togglefullscreen' }] },
   ]);
 }
 
@@ -31,7 +32,7 @@ app.whenReady().then(async () => {
     url = srv.url;
     dataDir = srv.fleet.store.dir;
   } catch (e) {
-    const r = await dialog.showMessageBox({ type: 'warning', message: 'Simulation konnte nicht gestartet werden', detail: `${e.message}\n\nLäuft sie bereits (z. B. als Dienst oder zweites Fenster)? Dann kann die laufende Instanz geöffnet werden.`, buttons: ['Laufende Instanz öffnen', 'Beenden'] });
+    const r = await dialog.showMessageBox({ type: 'warning', message: $t('Simulation konnte nicht gestartet werden', 'Simulation could not be started'), detail: $t(`${e.message}\n\nLäuft sie bereits (z. B. als Dienst oder zweites Fenster)? Dann kann die laufende Instanz geöffnet werden.`, `${e.message}\n\nIs it already running (e.g. as a service or in a second window)? Then the running instance can be opened.`), buttons: [$t('Laufende Instanz öffnen', 'Open running instance'), $t('Beenden', 'Quit')] });
     if (r.response === 1) { app.quit(); return; }
   }
   win = new BrowserWindow({

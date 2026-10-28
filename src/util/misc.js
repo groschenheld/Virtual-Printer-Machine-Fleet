@@ -1,4 +1,5 @@
 'use strict';
+const { $t, $tp, $lazy } = require('../i18n.js');
 // Kleine Helfer ohne externe Abhängigkeiten.
 
 const PT_PER_MM = 72 / 25.4;
@@ -64,7 +65,7 @@ function hexdump(buf, max = 512) {
     const asc = Array.from(chunk).map((x) => (x >= 32 && x < 127 ? String.fromCharCode(x) : '.')).join('');
     lines.push(i.toString(16).padStart(6, '0') + '  ' + hex.padEnd(48) + '  ' + asc);
   }
-  if (buf.length > max) lines.push(`… (${buf.length - max} weitere Bytes)`);
+  if (buf.length > max) lines.push($t(`… (${buf.length - max} weitere Bytes)`, `… (${buf.length - max} more bytes)`));
   return lines.join('\n');
 }
 

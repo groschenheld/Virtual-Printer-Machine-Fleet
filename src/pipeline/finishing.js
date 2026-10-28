@@ -1,10 +1,11 @@
 'use strict';
 // Weiterverarbeitung: Heften, Lochen, Falzen, Broschüre (Rückstich, Frontbeschnitt, Rückenpressung),
 // DIN-824-Faltung für Großformat. Prüft Grenzen der Finisher-Module und erzeugt Overlay-Geometrie.
+const { $t, $tp, $lazy } = require('../i18n.js');
 const { mm2pt, pt2mm, r1, fmtSize } = require('../util/misc');
 
-const STAPLE_DE = { 'top-left': 'oben links', 'top-right': 'oben rechts', 'bottom-left': 'unten links', 'bottom-right': 'unten rechts', 'dual-left': '2× links', 'dual-top': '2× oben', 'dual-right': '2× rechts', 'dual-bottom': '2× unten', saddle: 'Rückstich' };
-const FOLD_DE = { half: 'Mittelfalz', letter: 'Wickelfalz', z: 'Zickzackfalz', 'engineering-z': 'Z-Falz (A3 → A4, Einhefter)', accordion: 'Leporello', 'half-z': 'Halb-Z', gate: 'Fensterfalz', 'double-gate': 'Doppelfensterfalz', parallel: 'Doppelparallelfalz', 'din824-a': 'DIN 824 Form A (mit Heftrand)', 'din824-b': 'DIN 824 Form B (ohne Heftrand)', fan: 'Leporello/Fächer' };
+const STAPLE_DE = $lazy({ 'top-left': $tp('oben links', 'top left'), 'top-right': $tp('oben rechts', 'top right'), 'bottom-left': $tp('unten links', 'bottom left'), 'bottom-right': $tp('unten rechts', 'bottom right'), 'dual-left': $tp('2× links', '2× left'), 'dual-top': $tp('2× oben', '2× top'), 'dual-right': $tp('2× rechts', '2× right'), 'dual-bottom': $tp('2× unten', '2× bottom'), saddle: $tp('Rückstich', 'Saddle stitch') });
+const FOLD_DE = $lazy({ half: $tp('Mittelfalz', 'Half fold'), letter: $tp('Wickelfalz', 'Letter fold'), z: $tp('Zickzackfalz', 'Zigzag fold'), 'engineering-z': $tp('Z-Falz (A3 → A4, Einhefter)', 'Z-fold (A3 → A4, insert)'), accordion: $tp('Leporello', 'Accordion'), 'half-z': $tp('Halb-Z', 'Half-Z'), gate: $tp('Fensterfalz', 'Gate fold'), 'double-gate': $tp('Doppelfensterfalz', 'Double gate fold'), parallel: $tp('Doppelparallelfalz', 'Double parallel fold'), 'din824-a': $tp('DIN 824 Form A (mit Heftrand)', 'DIN 824 form A (with binding margin)'), 'din824-b': $tp('DIN 824 Form B (ohne Heftrand)', 'DIN 824 form B (without binding margin)'), fan: $tp('Leporello/Fächer', 'Accordion/fan') });
 
 /** Geometrie eines Bogens in Leserichtung: "oben" ist die obere Kante der Seite. */
 function staplesFor(pos, W, H) {
@@ -101,7 +102,7 @@ function applyFinishing(ctx, layout) {
   const mods = require('../frontends').installedModules(device);
   const fin = ticket.finishing || {};
   const conflicts = [];
-  const off = (k) => (device.finisher?.modules?.[k] && device.finisher.modules[k].installed === false ? ' (Modul ist am Druckserver unter „Installierbare Optionen" als nicht installiert eingestellt)' : '');
+  const off = (k) => (device.finisher?.modules?.[k] && device.finisher.modules[k].installed === false ? $t(' (Modul ist am Druckserver unter „Installierbare Optionen" als nicht installiert eingestellt)', ' (module is set as not installed under “Installable options” on the print server)') : '');
   const media = layout.media ? catalog.get(layout.media) : null;
   const summary = [];
 
@@ -112,16 +113,16 @@ function applyFinishing(ctx, layout) {
     if (layout.mode === 'booklet') {
       const b = mods.booklet;
       const want = fin.booklet || { saddle: true };
-      if (!b) conflicts.push('Kein Broschürenmodul am Finisher – Bogen werden nur ausgeschossen, nicht gefalzt/geheftet' + off('booklet'));
+      if (!b) conflicts.push($t('Kein Broschürenmodul am Finisher – Bogen werden nur ausgeschossen, nicht gefalzt/geheftet', 'No booklet maker on the finisher – sheets are only imposed, not folded/stapled') + off('booklet'));
       else {
-        if (sheetsPerSet > b.maxSheets) conflicts.push(`Broschüre mit ${sheetsPerSet} Bogen überschreitet Maximum des Broschürenmoduls (${b.maxSheets} Bogen)`);
+        if (sheetsPerSet > b.maxSheets) conflicts.push($t(`Broschüre mit ${sheetsPerSet} Bogen überschreitet Maximum des Broschürenmoduls (${b.maxSheets} Bogen)`, `Booklet with ${sheetsPerSet} sheets exceeds the maximum of the booklet maker (${b.maxSheets} sheets)`));
         const trimMm = want.trimMm ?? fin.trimMm ?? (b.trim ? 5 : 0);
-        if (trimMm && !b.trim) conflicts.push('Frontbeschnitt angefordert, aber kein Trimmer vorhanden');
-        if (b.maxTrimMm && trimMm > b.maxTrimMm) conflicts.push(`Frontbeschnitt ${trimMm} mm > maximal ${b.maxTrimMm} mm`);
-        if (want.squareFold && !b.squareFold) conflicts.push('Rückenpressung (SquareFold) angefordert, aber nicht vorhanden');
+        if (trimMm && !b.trim) conflicts.push($t('Frontbeschnitt angefordert, aber kein Trimmer vorhanden', 'Face trim requested, but no trimmer available'));
+        if (b.maxTrimMm && trimMm > b.maxTrimMm) conflicts.push($t(`Frontbeschnitt ${trimMm} mm > maximal ${b.maxTrimMm} mm`, `Face trim ${trimMm} mm > maximum ${b.maxTrimMm} mm`));
+        if (want.squareFold && !b.squareFold) conflicts.push($t('Rückenpressung (SquareFold) angefordert, aber nicht vorhanden', 'Square fold requested, but not available'));
         for (const s of layout.surfaces) {
           const bk = s.booklet;
-          s.overlay.folds.push({ x1: bk.foldX, y1: 0, x2: bk.foldX, y2: s.hPt, kind: 'valley', n: 1, label: want.squareFold && b.squareFold ? 'Falz + Rückenpressung' : 'Mittelfalz' });
+          s.overlay.folds.push({ x1: bk.foldX, y1: 0, x2: bk.foldX, y2: s.hPt, kind: 'valley', n: 1, label: want.squareFold && b.squareFold ? $t('Falz + Rückenpressung', 'Fold + square fold') : $t('Mittelfalz', 'Half fold') });
           if (s.side === 'front') {
             s.overlay.staples.push({ x: bk.foldX, y: bk.y0 + bk.pageH * 0.25, angle: 90, len: mm2pt(12) }, { x: bk.foldX, y: bk.y0 + bk.pageH * 0.75, angle: 90, len: mm2pt(12) });
           }
@@ -131,26 +132,26 @@ function applyFinishing(ctx, layout) {
             const xl = Math.max(0, bk.foldX - bk.pageW) + creepTrim * 0, xr = Math.min(s.wPt, bk.foldX + bk.pageW);
             s.overlay.cuts.push({ x1: xl + creepTrim, y1: 0, x2: xl + creepTrim, y2: s.hPt, kind: 'face-trim', n: 1 }, { x1: xr - creepTrim, y1: 0, x2: xr - creepTrim, y2: s.hPt, kind: 'face-trim', n: 1 });
           }
-          if (bk.y0 > mm2pt(2)) s.overlay.areas.push({ x: 0, y: 0, w: s.wPt, h: bk.y0, kind: 'waste', label: 'Kopf/Fuß – bleibt stehen (kein 3-Seiten-Beschnitt)' }, { x: 0, y: bk.y0 + bk.pageH, w: s.wPt, h: s.hPt - bk.y0 - bk.pageH, kind: 'waste' });
+          if (bk.y0 > mm2pt(2)) s.overlay.areas.push({ x: 0, y: 0, w: s.wPt, h: bk.y0, kind: 'waste', label: $t('Kopf/Fuß – bleibt stehen (kein 3-Seiten-Beschnitt)', 'Head/foot – left as is (no 3-side trim)') }, { x: 0, y: bk.y0 + bk.pageH, w: s.wPt, h: s.hPt - bk.y0 - bk.pageH, kind: 'waste' });
         }
         const pw = layout.surfaces[0].booklet.pageW, ph = layout.surfaces[0].booklet.pageH;
-        summary.push(`Broschüre: falzen + 2 Rückstichklammern${want.squareFold && b.squareFold ? ' + Rückenpressung (SquareFold)' : ''}${trimMm && b.trim ? ` + Frontbeschnitt ${trimMm} mm` : ''} → Endformat ca. ${fmtSize(pt2mm(pw) - (b.trim ? trimMm : 0), pt2mm(ph))}, ${sheetsPerSet} Bogen/${sheetsPerSet * 4} Seiten je Exemplar`);
-        if (media && media.gsm > 300) conflicts.push(`Grammatur ${media.gsm} g/m² für Broschürenfalzung zu hoch`);
+        summary.push($t(`Broschüre: falzen + 2 Rückstichklammern${want.squareFold && b.squareFold ? ' + Rückenpressung (SquareFold)' : ''}${trimMm && b.trim ? ` + Frontbeschnitt ${trimMm} mm` : ''} → Endformat ca. ${fmtSize(pt2mm(pw) - (b.trim ? trimMm : 0), pt2mm(ph))}, ${sheetsPerSet} Bogen/${sheetsPerSet * 4} Seiten je Exemplar`, `Booklet: fold + 2 saddle staples${want.squareFold && b.squareFold ? ' + square fold' : ''}${trimMm && b.trim ? ` + face trim ${trimMm} mm` : ''} → finished size approx. ${fmtSize(pt2mm(pw) - (b.trim ? trimMm : 0), pt2mm(ph))}, ${sheetsPerSet} sheets/${sheetsPerSet * 4} pages per copy`));
+        if (media && media.gsm > 300) conflicts.push($t(`Grammatur ${media.gsm} g/m² für Broschürenfalzung zu hoch`, `Grammage ${media.gsm} g/m² too high for booklet folding`));
       }
     }
     // --- Heften
     if (fin.staple && fin.staple !== 'saddle') {
       const st = mods.stapler;
-      if (!st) conflicts.push('Heftung angefordert, aber kein Hefter am Finisher' + off('stapler'));
-      else if (st.positions && !st.positions.includes(fin.staple)) conflicts.push(`Heftposition „${STAPLE_DE[fin.staple] || fin.staple}" nicht unterstützt (möglich: ${st.positions.map((p) => STAPLE_DE[p] || p).join(', ')})`);
-      else if (sheetsPerSet > st.maxSheets) conflicts.push(`Heftung: ${sheetsPerSet} Bogen > maximal ${st.maxSheets} Bogen`);
-      else if (layout.mode === 'step-repeat') conflicts.push('Heftung bei Step & Repeat nicht sinnvoll');
+      if (!st) conflicts.push($t('Heftung angefordert, aber kein Hefter am Finisher', 'Stapling requested, but no stapler on the finisher') + off('stapler'));
+      else if (st.positions && !st.positions.includes(fin.staple)) conflicts.push($t(`Heftposition „${STAPLE_DE[fin.staple] || fin.staple}" nicht unterstützt (möglich: ${st.positions.map((p) => STAPLE_DE[p] || p).join(', ')})`, `Staple position “${STAPLE_DE[fin.staple] || fin.staple}” not supported (possible: ${st.positions.map((p) => STAPLE_DE[p] || p).join(', ')})`));
+      else if (sheetsPerSet > st.maxSheets) conflicts.push($t(`Heftung: ${sheetsPerSet} Bogen > maximal ${st.maxSheets} Bogen`, `Stapling: ${sheetsPerSet} sheets > maximum ${st.maxSheets} sheets`));
+      else if (layout.mode === 'step-repeat') conflicts.push($t('Heftung bei Step & Repeat nicht sinnvoll', 'Stapling makes no sense with step & repeat'));
       else {
         for (const s of layout.surfaces) {
           const pos = s.side === 'back' ? mirrorPos(fin.staple) : fin.staple;
           s.overlay.staples.push(...staplesFor(pos, s.wPt, s.hPt));
         }
-        summary.push(`Heftung ${STAPLE_DE[fin.staple] || fin.staple} durch ${sheetsPerSet} Bogen je Satz`);
+        summary.push($t(`Heftung ${STAPLE_DE[fin.staple] || fin.staple} durch ${sheetsPerSet} Bogen je Satz`, `Stapling ${STAPLE_DE[fin.staple] || fin.staple} through ${sheetsPerSet} sheets per set`));
       }
     }
     // --- Lochen
@@ -158,79 +159,79 @@ function applyFinishing(ctx, layout) {
       const pu = mods.puncher;
       const holes = fin.punch.holes || 2;
       const edge = fin.punch.edge || 'left';
-      if (!pu) conflicts.push('Lochung angefordert, aber kein Locher am Finisher' + off('puncher'));
-      else if (!pu.holes.includes(holes)) conflicts.push(`${holes}-fach-Lochung nicht unterstützt (möglich: ${pu.holes.join('/')})`);
-      else if (media && pu.maxGsm && media.gsm > pu.maxGsm) conflicts.push(`Lochung bei ${media.gsm} g/m² nicht möglich (max. ${pu.maxGsm} g/m²)`);
+      if (!pu) conflicts.push($t('Lochung angefordert, aber kein Locher am Finisher', 'Punching requested, but no puncher on the finisher') + off('puncher'));
+      else if (!pu.holes.includes(holes)) conflicts.push($t(`${holes}-fach-Lochung nicht unterstützt (möglich: ${pu.holes.join('/')})`, `${holes}-hole punching not supported (possible: ${pu.holes.join('/')})`));
+      else if (media && pu.maxGsm && media.gsm > pu.maxGsm) conflicts.push($t(`Lochung bei ${media.gsm} g/m² nicht möglich (max. ${pu.maxGsm} g/m²)`, `Punching not possible at ${media.gsm} g/m² (max. ${pu.maxGsm} g/m²)`));
       else {
         for (const s of layout.surfaces) {
           const e = s.side === 'back' ? ({ left: 'right', right: 'left' }[edge] || edge) : edge;
           s.overlay.holes.push(...holesFor(holes, e, s.wPt, s.hPt));
         }
-        summary.push(`${holes}-fach-Lochung am ${({ left: 'linken', right: 'rechten', top: 'oberen', bottom: 'unteren' })[edge]} Rand (Lochabstand ${holes === 3 ? 108 : 80} mm, Ø 6 mm)`);
+        summary.push($t(`${holes}-fach-Lochung am ${({ left: 'linken', right: 'rechten', top: 'oberen', bottom: 'unteren' })[edge]} Rand (Lochabstand ${holes === 3 ? 108 : 80} mm, Ø 6 mm)`, `${holes}-hole punching on the ${({ left: 'left', right: 'right', top: 'top', bottom: 'bottom' })[edge]} edge (hole spacing ${holes === 3 ? 108 : 80} mm, Ø 6 mm)`));
       }
     }
     // --- Falzen (Einzelbogen)
     if (fin.fold && layout.mode !== 'booklet') {
       const fo = mods.folder;
-      if (!fo) conflicts.push(`Falzung (${FOLD_DE[fin.fold] || fin.fold}) angefordert, aber keine Falzeinheit` + off('folder'));
-      else if (!fo.types.includes(fin.fold)) conflicts.push(`Falzart ${FOLD_DE[fin.fold] || fin.fold} nicht unterstützt (möglich: ${fo.types.map((t) => FOLD_DE[t] || t).join(', ')})`);
-      else if (media && fo.maxGsm && media.gsm > fo.maxGsm) conflicts.push(`Falzen bei ${media.gsm} g/m² nicht möglich (max. ${fo.maxGsm} g/m²)`);
+      if (!fo) conflicts.push($t(`Falzung (${FOLD_DE[fin.fold] || fin.fold}) angefordert, aber keine Falzeinheit`, `Folding (${FOLD_DE[fin.fold] || fin.fold}) requested, but no folding unit`) + off('folder'));
+      else if (!fo.types.includes(fin.fold)) conflicts.push($t(`Falzart ${FOLD_DE[fin.fold] || fin.fold} nicht unterstützt (möglich: ${fo.types.map((t) => FOLD_DE[t] || t).join(', ')})`, `Fold type ${FOLD_DE[fin.fold] || fin.fold} not supported (possible: ${fo.types.map((t) => FOLD_DE[t] || t).join(', ')})`));
+      else if (media && fo.maxGsm && media.gsm > fo.maxGsm) conflicts.push($t(`Falzen bei ${media.gsm} g/m² nicht möglich (max. ${fo.maxGsm} g/m²)`, `Folding not possible at ${media.gsm} g/m² (max. ${fo.maxGsm} g/m²)`));
       else {
         for (const s of layout.surfaces) {
           const lines = foldLines(fin.fold, s.wPt, s.hPt) || [];
           s.overlay.folds.push(...lines);
         }
-        summary.push(`${FOLD_DE[fin.fold] || fin.fold} je Bogen`);
+        summary.push($t(`${FOLD_DE[fin.fold] || fin.fold} je Bogen`, `${FOLD_DE[fin.fold] || fin.fold} per sheet`));
       }
     }
     if (layout.mode === 'step-repeat' && layout.surfaces[0]?.stepRepeat) {
       const sr = layout.surfaces[0].stepRepeat;
-      summary.push(`Schneidemaschine: ${sr.cuts} Schnitte je Stapel → ${sr.perSheet} Nutzen/Bogen, ${ticket.copies} Stück aus ${sr.sheetsNeeded} Bogen${sr.sheetsNeeded * sr.perSheet > ticket.copies ? ` (${sr.sheetsNeeded * sr.perSheet - ticket.copies} Überschuss)` : ''}`);
+      summary.push($t(`Schneidemaschine: ${sr.cuts} Schnitte je Stapel → ${sr.perSheet} Nutzen/Bogen, ${ticket.copies} Stück aus ${sr.sheetsNeeded} Bogen${sr.sheetsNeeded * sr.perSheet > ticket.copies ? ` (${sr.sheetsNeeded * sr.perSheet - ticket.copies} Überschuss)` : ''}`, `Guillotine: ${sr.cuts} cuts per stack → ${sr.perSheet} ups/sheet, ${ticket.copies} pieces from ${sr.sheetsNeeded} sheets${sr.sheetsNeeded * sr.perSheet > ticket.copies ? ` (${sr.sheetsNeeded * sr.perSheet - ticket.copies} surplus)` : ''}`));
     }
-    if (fin.trimMm && layout.mode !== 'booklet' && layout.mode !== 'step-repeat') job.addLog('FINISHING', `Beschnitt ${fin.trimMm} mm angefordert – an diesem Gerät nur im Broschürenmodus möglich, ignoriert`);
+    if (fin.trimMm && layout.mode !== 'booklet' && layout.mode !== 'step-repeat') job.addLog('FINISHING', $t(`Beschnitt ${fin.trimMm} mm angefordert – an diesem Gerät nur im Broschürenmodus möglich, ignoriert`, `Trim ${fin.trimMm} mm requested – on this device only possible in booklet mode, ignored`));
     // --- Ablage
     const bins = device.finisher?.bins || [];
     let bin = ticket.outputBin && bins.find((b) => b.id === ticket.outputBin || b.name.toLowerCase() === String(ticket.outputBin).toLowerCase());
-    if (ticket.outputBin && !bin) job.warn('FINISHING', `Ausgabefach „${ticket.outputBin}" unbekannt – Standardablage`);
+    if (ticket.outputBin && !bin) job.warn('FINISHING', $t(`Ausgabefach „${ticket.outputBin}" unbekannt – Standardablage`, `Output tray “${ticket.outputBin}” unknown – default tray`));
     if (!bin) bin = layout.mode === 'booklet' ? bins.find((b) => b.id === 'booklet') : (fin.staple || fin.punch || fin.fold) ? bins.find((b) => b.id === 'stacker') || bins[0] : bins[0];
-    layout.outputBin = bin ? bin.name : 'Ablage';
-    summary.push(`Ablage: ${layout.outputBin}${layout.sets > 1 ? ' (Sätze versetzt abgelegt)' : ''}`);
+    layout.outputBin = bin ? bin.name : $t('Ablage', 'Output tray');
+    summary.push($t(`Ablage: ${layout.outputBin}${layout.sets > 1 ? ' (Sätze versetzt abgelegt)' : ''}`, `Output tray: ${layout.outputBin}${layout.sets > 1 ? ' (sets offset)' : ''}`));
   }
 
   if (layout.kind === 'wide') {
     if (fin.fold) {
       const wf = mods.wfFolder;
-      if (!wf) conflicts.push('Faltung angefordert, aber keine Online-Faltmaschine angeschlossen' + off('wfFolder'));
-      else if (!wf.forms.includes(fin.fold)) conflicts.push(`Faltform ${FOLD_DE[fin.fold] || fin.fold} nicht unterstützt (möglich: ${wf.forms.map((t) => FOLD_DE[t] || t).join(', ')})`);
+      if (!wf) conflicts.push($t('Faltung angefordert, aber keine Online-Faltmaschine angeschlossen', 'Folding requested, but no online folder connected') + off('wfFolder'));
+      else if (!wf.forms.includes(fin.fold)) conflicts.push($t(`Faltform ${FOLD_DE[fin.fold] || fin.fold} nicht unterstützt (möglich: ${wf.forms.map((t) => FOLD_DE[t] || t).join(', ')})`, `Fold form ${FOLD_DE[fin.fold] || fin.fold} not supported (possible: ${wf.forms.map((t) => FOLD_DE[t] || t).join(', ')})`));
       else {
         let folded = 0;
         for (const s of layout.surfaces) {
           const wMm = pt2mm(s.wPt), lMm = s.lengthMm || pt2mm(s.hPt);
           if (Math.min(wMm, lMm) > wf.maxWidthMm || Math.max(wMm, lMm) > wf.maxLengthMm) {
-            job.warn('FINISHING', `${s.label}: ${fmtSize(wMm, lMm)} außerhalb des Faltbereichs → ungefaltet in die Ablage`);
+            job.warn('FINISHING', $t(`${s.label}: ${fmtSize(wMm, lMm)} außerhalb des Faltbereichs → ungefaltet in die Ablage`, `${s.label}: ${fmtSize(wMm, lMm)} outside the folding range → unfolded to the tray`));
             continue;
           }
           s.overlay.folds.push(...din824(fin.fold, s.wPt, s.hPt));
           folded++;
         }
-        summary.push(`${FOLD_DE[fin.fold]}: ${folded} Blatt gefaltet auf ca. 210 × 297 mm (vereinfachte Nachbildung der Faltlinien)`);
+        summary.push($t(`${FOLD_DE[fin.fold]}: ${folded} Blatt gefaltet auf ca. 210 × 297 mm (vereinfachte Nachbildung der Faltlinien)`, `${FOLD_DE[fin.fold]}: ${folded} sheet(s) folded to approx. 210 × 297 mm (simplified reproduction of the fold lines)`));
       }
     }
-    if (layout.cutMode && layout.cutMode !== 'none') summary.push(`Querschnitt nach jedem Abschnitt (${layout.cutMode})`);
+    if (layout.cutMode && layout.cutMode !== 'none') summary.push($t(`Querschnitt nach jedem Abschnitt (${layout.cutMode})`, `Cross cut after each section (${layout.cutMode})`));
     const bins = device.finisher?.bins || [];
     const bin = (ticket.outputBin && bins.find((b) => b.id === ticket.outputBin)) || (fin.fold && bins.find((b) => b.id === 'folder')) || (ticket.roll.takeUp && bins.find((b) => b.id === 'takeup')) || bins[0];
-    layout.outputBin = bin ? bin.name : 'Ablage';
-    summary.push(`Ablage: ${layout.outputBin}`);
+    layout.outputBin = bin ? bin.name : $t('Ablage', 'Output tray');
+    summary.push($t(`Ablage: ${layout.outputBin}`, `Output tray: ${layout.outputBin}`));
   }
 
   if (layout.kind === 'photo') {
-    summary.push(`${layout.totalSheets} Print(s) geschnitten${ticket.photo.backprint ? ', mit Rückseitendruck' : ''}`);
-    layout.outputBin = (device.finisher?.bins || [])[0]?.name || 'Ausgabefach';
+    summary.push($t(`${layout.totalSheets} Print(s) geschnitten`, `${layout.totalSheets} print(s) cut`) + (ticket.photo.backprint ? $t(', mit Rückseitendruck', ', with back printing') : ''));
+    layout.outputBin = (device.finisher?.bins || [])[0]?.name || $t('Ausgabefach', 'Output tray');
   }
 
   if (layout.kind === 'printcut') {
-    summary.push(layout.mode === 'none' ? 'Nur Druck – kein Schnitt' : `Konturschnitt mit integriertem Messer: ${layout.cuts} Pfad(e), Schnittlänge ${r1(layout.cutLengthMm / 1000)} m`);
-    layout.outputBin = ticket.roll.takeUp ? 'Aufwickler' : 'Medienausgabe';
+    summary.push(layout.mode === 'none' ? $t('Nur Druck – kein Schnitt', 'Print only – no cut') : $t(`Konturschnitt mit integriertem Messer: ${layout.cuts} Pfad(e), Schnittlänge ${r1(layout.cutLengthMm / 1000)} m`, `Contour cut with integrated blade: ${layout.cuts} path(s), cut length ${r1(layout.cutLengthMm / 1000)} m`));
+    layout.outputBin = ticket.roll.takeUp ? $t('Aufwickler', 'Take-up reel') : $t('Medienausgabe', 'Media output');
   }
 
   for (const s of summary) job.addLog('FINISHING', s);

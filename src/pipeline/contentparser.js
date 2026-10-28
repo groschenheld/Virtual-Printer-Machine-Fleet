@@ -1,6 +1,7 @@
 'use strict';
 // Interpretiert PDF-Content-Streams soweit nötig, um Schmuckfarben (z. B. CutContour,
 // PerfCutContour) zu finden und die damit gezeichneten Pfade als Schneidkonturen zu extrahieren.
+const { $t, $tp, $lazy } = require('../i18n.js');
 
 const { PDFName, PDFArray, PDFDict, PDFRawStream, PDFContentStream, PDFStream, decodePDFRawStream } = require('../vendor/pdf-lib');
 const { M } = require('../util/misc');
@@ -162,7 +163,7 @@ function analyzePage(doc, page, cutNames = []) {
       const f = !s && fill && isCut(gs.fillSpot);
       const name = s || f;
       if (name && path.length) {
-        cuts.push({ name, kind: /perf/i.test(name) ? 'perf' : 'contour', via: s ? 'Kontur' : 'Fläche', subpaths: path.filter((p) => p.length > 1) });
+        cuts.push({ name, kind: /perf/i.test(name) ? 'perf' : 'contour', via: s ? $t('Kontur', 'contour') : $t('Fläche', 'fill'), subpaths: path.filter((p) => p.length > 1) });
       }
       path = []; sub = null;
     };

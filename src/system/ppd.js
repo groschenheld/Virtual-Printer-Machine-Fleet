@@ -3,6 +3,7 @@
 // mitliefern: mit Installierbaren Optionen (Finisher-Module), Fächern/Rollen, Materialarten, Ablagen,
 // Duplex und Weiterverarbeitung. Die Optionen werden über cupsIPPFinishings & Co. als IPP-Attribute
 // an die Simulation übertragen; das PDF selbst geht unverändert durch.
+const { $t, $tp, $lazy } = require('../i18n.js');
 const { frontendOf, installedModules, MODULE_DE } = require('../frontends');
 const { SIZES } = require('../pipeline/ticket');
 
@@ -11,10 +12,10 @@ const pt = (mm) => Math.round(mm * PT * 100) / 100;
 const q = (s) => String(s).replace(/"/g, "'").replace(/[\r\n]+/g, ' ');
 const tr = (s) => String(s).replace(/[/:]/g, '-'); // Übersetzungstext darf / und : nicht enthalten
 
-const STAPLE = { 'top-left': ['UpperLeft', 'Oben links', 20], 'bottom-left': ['LowerLeft', 'Unten links', 21], 'top-right': ['UpperRight', 'Oben rechts', 22], 'bottom-right': ['LowerRight', 'Unten rechts', 23], 'dual-left': ['DualLeft', '2x links', 28], 'dual-top': ['DualTop', '2x oben', 29], 'dual-right': ['DualRight', '2x rechts', 30], 'dual-bottom': ['DualBottom', '2x unten', 31] };
-const PUNCH = { 2: ['Punch2Left', '2-fach links', 74], 3: ['Punch3Left', '3-fach links', 78], 4: ['Punch4Left', '4-fach links', 82] };
-const FOLD_SHEET = { half: ['Half', 'Mittelfalz', 93], letter: ['Letter', 'Wickelfalz', 96], z: ['ZFold', 'Zickzackfalz', 100], 'engineering-z': ['EngineeringZ', 'Z-Falz A3 auf A4', 101] };
-const FOLD_WIDE = { 'din824-a': ['DIN824A', 'DIN 824 Form A (Heftrand)', 101], 'din824-b': ['DIN824B', 'DIN 824 Form B', 98], fan: ['Fan', 'Leporello', 90] };
+const STAPLE = $lazy({ 'top-left': ['UpperLeft', $tp('Oben links', 'Top left'), 20], 'bottom-left': ['LowerLeft', $tp('Unten links', 'Bottom left'), 21], 'top-right': ['UpperRight', $tp('Oben rechts', 'Top right'), 22], 'bottom-right': ['LowerRight', $tp('Unten rechts', 'Bottom right'), 23], 'dual-left': ['DualLeft', $tp('2x links', '2x left'), 28], 'dual-top': ['DualTop', $tp('2x oben', '2x top'), 29], 'dual-right': ['DualRight', $tp('2x rechts', '2x right'), 30], 'dual-bottom': ['DualBottom', $tp('2x unten', '2x bottom'), 31] });
+const PUNCH = $lazy({ 2: ['Punch2Left', $tp('2-fach links', '2 holes left'), 74], 3: ['Punch3Left', $tp('3-fach links', '3 holes left'), 78], 4: ['Punch4Left', $tp('4-fach links', '4 holes left'), 82] });
+const FOLD_SHEET = $lazy({ half: ['Half', $tp('Mittelfalz', 'Half fold'), 93], letter: ['Letter', $tp('Wickelfalz', 'Letter fold'), 96], z: ['ZFold', $tp('Zickzackfalz', 'Zigzag fold'), 100], 'engineering-z': ['EngineeringZ', $tp('Z-Falz A3 auf A4', 'Z-fold A3 to A4'), 101] });
+const FOLD_WIDE = $lazy({ 'din824-a': ['DIN824A', $tp('DIN 824 Form A (Heftrand)', 'DIN 824 form A (binding margin)'), 101], 'din824-b': ['DIN824B', 'DIN 824 Form B', 98], fan: ['Fan', $tp('Leporello', 'Accordion'), 90] });
 
 function pageSizes(c) {
   const list = [];
@@ -23,11 +24,11 @@ function pageSizes(c) {
     const [minA, minB] = [Math.min(...c.sheet.minMm), Math.max(...c.sheet.minMm)];
     const [maxA, maxB] = [Math.min(...c.sheet.maxMm), Math.max(...c.sheet.maxMm)];
     const ok = (w, h) => Math.min(w, h) >= minA - 0.5 && Math.max(w, h) >= minB - 0.5 && Math.min(w, h) <= maxA + 0.5 && Math.max(w, h) <= maxB + 0.5;
-    for (const [k, t] of [['A4', 'A4'], ['A3', 'A3'], ['A5', 'A5'], ['SRA3', 'SRA3'], ['SRA4', 'SRA4'], ['B4', 'B4'], ['B3', 'B3'], ['LETTER', 'Letter'], ['LEGAL', 'Legal'], ['TABLOID', 'Tabloid'], ['12X18', '12x18 Zoll'], ['13X19', '13x19 Zoll']]) {
+    for (const [k, t] of [['A4', 'A4'], ['A3', 'A3'], ['A5', 'A5'], ['SRA3', 'SRA3'], ['SRA4', 'SRA4'], ['B4', 'B4'], ['B3', 'B3'], ['LETTER', 'Letter'], ['LEGAL', 'Legal'], ['TABLOID', 'Tabloid'], ['12X18', $t('12x18 Zoll', '12x18 inch')], ['13X19', $t('13x19 Zoll', '13x19 inch')]]) {
       const [w, h] = SIZES[k];
       if (ok(w, h)) add(t.replace(/ Zoll/, '').replace(/\s/g, ''), t, w, h);
     }
-    for (const [w, h] of [[330, 488], [330, 660], [330, 1200], [210, 594]]) if (ok(w, h)) add(`w${Math.round(pt(w))}h${Math.round(pt(h))}`, `${w} x ${h} mm (Langbogen)`, w, h);
+    for (const [w, h] of [[330, 488], [330, 660], [330, 1200], [210, 594]]) if (ok(w, h)) add(`w${Math.round(pt(w))}h${Math.round(pt(h))}`, $t(`${w} x ${h} mm (Langbogen)`, `${w} x ${h} mm (long sheet)`), w, h);
   } else if (c.kind === 'photo') {
     for (const [k, t] of [['9X13', '9x13'], ['10X15', '10x15'], ['13X18', '13x18'], ['15X20', '15x20'], ['15X21', '15x21'], ['20X25', '20x25'], ['20X30', '20x30'], ['21X30', '21x30 (A4)']]) {
       const [w, h] = SIZES[k];
@@ -39,7 +40,7 @@ function pageSizes(c) {
       const [w, h] = SIZES[k];
       if (Math.min(w, h) <= maxW + 0.5) add(k.replace('-', ''), k, w, h);
     }
-    if (maxW >= 1189) add('2A0', '2A0', 1189, 1682);
+    if (maxW >= 1189) add('1189x1682mm', '2A0', 1189, 1682);
   }
   return list;
 }
@@ -51,6 +52,8 @@ function generatePpd(fleet, dev) {
   const inst = installedModules(c);
   const m = c.marginsMm || {};
   const L = [];
+  // ModelName/ShortNickName/Product: CUPS erlaubt nur einfache Zeichen (keine Klammern, Kommas, &, Anführungszeichen)
+  const plain = (x) => String(x).replace(/&/g, $t(' und ', ' and ')).replace(/[^A-Za-z0-9 ._+-]/g, ' ').replace(/\s+/g, ' ').trim();
   const P = (s) => L.push(s);
   const sizes = pageSizes(c);
   const def = sizes.find((s) => /^(A4|Photo10x15|A1)$/.test(s.key)) || sizes[0];
@@ -58,16 +61,16 @@ function generatePpd(fleet, dev) {
   const pcName = ('VPF' + c.id.replace(/[^A-Za-z0-9]/g, '').toUpperCase()).slice(0, 8) + '.PPD';
 
   P('*PPD-Adobe: "4.3"');
-  P('*%%%% Virtual Print Fleet – erzeugt für ' + q(c.name) + ' (' + q(fe.label) + ')');
+  P($t('*%%%% Virtual Print Fleet – erzeugt für ', '*%%%% Virtual Print Fleet – generated for ') + q(c.name) + ' (' + q(fe.label) + ')');
   P('*FormatVersion: "4.3"');
   P('*FileVersion: "1.0"');
-  P('*LanguageVersion: German');
+  P('*LanguageVersion: ' + $t('German', 'English'));
   P('*LanguageEncoding: ISOLatin1');
   P(`*PCFileName: "${pcName}"`);
   P(`*Manufacturer: "${q(c.vendor)}"`);
-  P(`*Product: "(${q(c.model)})"`);
-  P(`*ModelName: "${q(`${c.vendor} ${c.model} ${fe.label} VPF`)}"`);
-  P(`*ShortNickName: "${q(`${c.model} VPF`).slice(0, 31)}"`);
+  P(`*Product: "(${q(plain(c.model))})"`);
+  P(`*ModelName: "${q(plain(`${c.vendor} ${c.model} ${fe.label} VPF`))}"`);
+  P(`*ShortNickName: "${q(plain(`${c.model} VPF`)).slice(0, 31)}"`);
   P(`*NickName: "${q(nick)}"`);
   P('*PSVersion: "(3010.000) 0"');
   P('*LanguageLevel: "3"');
@@ -84,7 +87,7 @@ function generatePpd(fleet, dev) {
   P('*cupsFilter2: "application/vnd.cups-pdf application/pdf 10 -"');
   P('*cupsFilter2: "application/vnd.cups-postscript application/postscript 20 -"');
   P(`*APSupportsCustomColorMatching: False`);
-  P(`*% Druckserver: ${q(c.frontend.product)} – Webseite http://<host>:${c.ports.http}/`);
+  P(`*% Front-End: ${q(c.frontend.product)}`);
   P('');
 
   // ---------------- Installierbare Optionen
@@ -94,12 +97,12 @@ function generatePpd(fleet, dev) {
     instOpts.push({ key: `VPFInst${k[0].toUpperCase()}${k.slice(1)}`, mod: k, text: MODULE_DE[k] || k, on: !!inst[k] });
   }
   if (instOpts.length) {
-    P('*OpenGroup: InstallableOptions/Installierbare Optionen');
+    P($t('*OpenGroup: InstallableOptions/Installierbare Optionen', '*OpenGroup: InstallableOptions/Installable Options'));
     for (const o of instOpts) {
       P(`*OpenUI *${o.key}/${tr(o.text)}: Boolean`);
       P(`*Default${o.key}: ${o.on ? 'True' : 'False'}`);
-      P(`*${o.key} True/Installiert: ""`);
-      P(`*${o.key} False/Nicht installiert: ""`);
+      P($t(`*${o.key} True/Installiert: ""`, `*${o.key} True/Installed: ""`));
+      P($t(`*${o.key} False/Nicht installiert: ""`, `*${o.key} False/Not installed: ""`));
       P(`*CloseUI: *${o.key}`);
     }
     P('*CloseGroup: InstallableOptions');
@@ -107,12 +110,12 @@ function generatePpd(fleet, dev) {
   }
 
   // ---------------- Seitengröße
-  P('*OpenUI *PageSize/Papierformat: PickOne');
+  P($t('*OpenUI *PageSize/Papierformat: PickOne', '*OpenUI *PageSize/Paper Size: PickOne'));
   P('*OrderDependency: 10 AnySetup *PageSize');
   P(`*DefaultPageSize: ${def.key}`);
   for (const s of sizes) P(`*PageSize ${s.key}/${tr(s.text)}: "<</PageSize[${pt(s.w)} ${pt(s.h)}]/ImagingBBox null>>setpagedevice"`);
   P('*CloseUI: *PageSize');
-  P('*OpenUI *PageRegion/Papierformat: PickOne');
+  P($t('*OpenUI *PageRegion/Papierformat: PickOne', '*OpenUI *PageRegion/Paper Size: PickOne'));
   P('*OrderDependency: 10 AnySetup *PageRegion');
   P(`*DefaultPageRegion: ${def.key}`);
   for (const s of sizes) P(`*PageRegion ${s.key}/${tr(s.text)}: "<</PageSize[${pt(s.w)} ${pt(s.h)}]/ImagingBBox null>>setpagedevice"`);
@@ -136,46 +139,46 @@ function generatePpd(fleet, dev) {
   P('');
 
   // ---------------- Quelle / Material / Ablage / Duplex / Farbe
-  P(`*OpenUI *InputSlot/${c.kind === 'sheet' ? 'Papierfach' : 'Rolle'}: PickOne`);
+  P(`*OpenUI *InputSlot/${c.kind === 'sheet' ? $t('Papierfach', 'Paper tray') : $t('Rolle', 'Roll')}: PickOne`);
   P('*OrderDependency: 20 AnySetup *InputSlot');
   P('*DefaultInputSlot: auto');
-  P('*InputSlot auto/Automatisch: ""');
+  P($t('*InputSlot auto/Automatisch: ""', '*InputSlot auto/Automatic: ""'));
   for (const s of c.slots) {
     const med = s.loaded && fleet.catalog.get(s.loaded.mediaId);
     P(`*InputSlot ${s.ippSource}/${tr(s.name + (med ? ' - ' + med.name : ''))}: ""`);
   }
   P('*CloseUI: *InputSlot');
   const types = Array.from(new Set(Array.from(fleet.catalog.values()).filter((x) => x.kind === (c.kind === 'sheet' ? 'sheet' : 'roll')).map((x) => x.ippType || 'stationery')));
-  const TYPE_DE = { stationery: 'Normalpapier', 'stationery-coated': 'Gestrichen', cardstock: 'Karton', labels: 'Etiketten/Folie', 'photographic-glossy': 'Foto glänzend', 'photographic-satin': 'Foto satin', 'photographic-semi-gloss': 'Foto halbmatt', fabric: 'Gewebe/Canvas', other: 'Sonstiges' };
-  P('*OpenUI *MediaType/Materialart: PickOne');
+  const TYPE_DE = { stationery: $t('Normalpapier', 'Plain paper'), 'stationery-coated': $t('Gestrichen', 'Coated'), cardstock: $t('Karton', 'Cardstock'), labels: $t('Etiketten/Folie', 'Labels/film'), 'photographic-glossy': $t('Foto glänzend', 'Photo glossy'), 'photographic-satin': $t('Foto satin', 'Photo satin'), 'photographic-semi-gloss': $t('Foto halbmatt', 'Photo semi-matte'), fabric: $t('Gewebe/Canvas', 'Fabric/canvas'), other: $t('Sonstiges', 'Other') };
+  P($t('*OpenUI *MediaType/Materialart: PickOne', '*OpenUI *MediaType/Media Type: PickOne'));
   P('*OrderDependency: 20 AnySetup *MediaType');
   P('*DefaultMediaType: auto');
-  P('*MediaType auto/Automatisch: ""');
+  P($t('*MediaType auto/Automatisch: ""', '*MediaType auto/Automatic: ""'));
   for (const t of types) P(`*MediaType ${t}/${tr(TYPE_DE[t] || t)}: ""`);
   P('*CloseUI: *MediaType');
   const bins = c.finisher?.bins || [];
   if (bins.length) {
-    P('*OpenUI *OutputBin/Ausgabefach: PickOne');
+    P($t('*OpenUI *OutputBin/Ausgabefach: PickOne', '*OpenUI *OutputBin/Output Bin: PickOne'));
     P('*OrderDependency: 20 AnySetup *OutputBin');
     P(`*DefaultOutputBin: ${bins[0].id}`);
     for (const b of bins) P(`*OutputBin ${b.id}/${tr(b.name)}: ""`);
     P('*CloseUI: *OutputBin');
   }
   if (c.duplex) {
-    P('*OpenUI *Duplex/Beidseitig: PickOne');
+    P($t('*OpenUI *Duplex/Beidseitig: PickOne', '*OpenUI *Duplex/Two-Sided: PickOne'));
     P('*OrderDependency: 20 AnySetup *Duplex');
     P('*DefaultDuplex: None');
-    P('*Duplex None/Einseitig: "<</Duplex false>>setpagedevice"');
-    P('*Duplex DuplexNoTumble/Lange Kante: "<</Duplex true/Tumble false>>setpagedevice"');
-    P('*Duplex DuplexTumble/Kurze Kante: "<</Duplex true/Tumble true>>setpagedevice"');
+    P($t('*Duplex None/Einseitig: "<</Duplex false>>setpagedevice"', '*Duplex None/One-Sided: "<</Duplex false>>setpagedevice"'));
+    P($t('*Duplex DuplexNoTumble/Lange Kante: "<</Duplex true/Tumble false>>setpagedevice"', '*Duplex DuplexNoTumble/Long Edge: "<</Duplex true/Tumble false>>setpagedevice"'));
+    P($t('*Duplex DuplexTumble/Kurze Kante: "<</Duplex true/Tumble true>>setpagedevice"', '*Duplex DuplexTumble/Short Edge: "<</Duplex true/Tumble true>>setpagedevice"'));
     P('*CloseUI: *Duplex');
   }
   if (c.color) {
-    P('*OpenUI *ColorModel/Farbmodus: PickOne');
+    P($t('*OpenUI *ColorModel/Farbmodus: PickOne', '*OpenUI *ColorModel/Color Mode: PickOne'));
     P('*OrderDependency: 20 AnySetup *ColorModel');
     P('*DefaultColorModel: CMYK');
-    P('*ColorModel CMYK/Farbe: ""');
-    P('*ColorModel Gray/Graustufen: ""');
+    P($t('*ColorModel CMYK/Farbe: ""', '*ColorModel CMYK/Color: ""'));
+    P($t('*ColorModel Gray/Graustufen: ""', '*ColorModel Gray/Grayscale: ""'));
     P('*CloseUI: *ColorModel');
   }
   P('');
@@ -188,18 +191,18 @@ function generatePpd(fleet, dev) {
     P(`*OpenUI *${key}/${tr(text)}: PickOne`);
     P(`*OrderDependency: 30 AnySetup *${key}`);
     P(`*Default${key}: None`);
-    P(`*${key} None/Aus: ""`);
+    P($t(`*${key} None/Aus: ""`, `*${key} None/Off: ""`));
     for (const [kw, t, num] of entries) { P(`*${key} ${kw}/${tr(t)}: ""`); fin.push(`*cupsIPPFinishings ${num}/${kw}: "*${key} ${kw}"`); }
     P(`*CloseUI: *${key}`);
     if (instKey) constraints.push(`*UIConstraints: *${instKey} False *${key}`, `*UIConstraints: *${key} *${instKey} False`);
   };
   const ik = (mod) => (mods[mod] ? `VPFInst${mod[0].toUpperCase()}${mod.slice(1)}` : null);
-  if (Object.keys(mods).some((k) => ['stapler', 'puncher', 'booklet', 'folder', 'wfFolder'].includes(k))) P('*OpenGroup: Finishing/Weiterverarbeitung');
-  if (mods.stapler) pickOne('StapleLocation', 'Heften', (mods.stapler.positions || []).filter((p) => STAPLE[p]).map((p) => STAPLE[p]), ik('stapler'));
-  if (mods.puncher) pickOne('Punch', 'Lochen', (mods.puncher.holes || []).filter((h) => PUNCH[h]).map((h) => PUNCH[h]), ik('puncher'));
-  if (mods.booklet) pickOne('Booklet', 'Broschüre', [['Saddle', 'Rückstichheftung (Broschüre)', 8]], ik('booklet'));
-  if (mods.folder) pickOne('Fold', 'Falzen', (mods.folder.types || []).filter((t) => FOLD_SHEET[t]).map((t) => FOLD_SHEET[t]), ik('folder'));
-  if (mods.wfFolder) pickOne('Fold', 'Falten', (mods.wfFolder.forms || []).filter((t) => FOLD_WIDE[t]).map((t) => FOLD_WIDE[t]), ik('wfFolder'));
+  if (Object.keys(mods).some((k) => ['stapler', 'puncher', 'booklet', 'folder', 'wfFolder'].includes(k))) P($t('*OpenGroup: Finishing/Weiterverarbeitung', '*OpenGroup: Finishing/Finishing'));
+  if (mods.stapler) pickOne('StapleLocation', $t('Heften', 'Staple'), (mods.stapler.positions || []).filter((p) => STAPLE[p]).map((p) => STAPLE[p]), ik('stapler'));
+  if (mods.puncher) pickOne('Punch', $t('Lochen', 'Punch'), (mods.puncher.holes || []).filter((h) => PUNCH[h]).map((h) => PUNCH[h]), ik('puncher'));
+  if (mods.booklet) pickOne('Booklet', $t('Broschüre', 'Booklet'), [['Saddle', $t('Rückstichheftung (Broschüre)', 'Saddle stitch (booklet)'), 8]], ik('booklet'));
+  if (mods.folder) pickOne('Fold', $t('Falzen', 'Fold'), (mods.folder.types || []).filter((t) => FOLD_SHEET[t]).map((t) => FOLD_SHEET[t]), ik('folder'));
+  if (mods.wfFolder) pickOne('Fold', $t('Falten', 'Fold'), (mods.wfFolder.forms || []).filter((t) => FOLD_WIDE[t]).map((t) => FOLD_WIDE[t]), ik('wfFolder'));
   if (Object.keys(mods).some((k) => ['stapler', 'puncher', 'booklet', 'folder', 'wfFolder'].includes(k))) P('*CloseGroup: Finishing');
   for (const f of fin) P(f);
   for (const k of constraints) P(k);
@@ -207,7 +210,7 @@ function generatePpd(fleet, dev) {
   P('*DefaultFont: Courier');
   P('*Font Courier: Standard "(002.004S)" Standard ROM');
   P('*Font Helvetica: Standard "(001.006S)" Standard ROM');
-  P('*% Ende');
+  P($t('*% Ende', '*% End'));
   const text = (L.join('\n') + '\n').replace(/[–—]/g, '-').replace(/[„“”]/g, "'").replace(/[‚‘’]/g, "'").replace(/…/g, '...').replace(/[^\x09\x0a\x20-\x7e\xa0-\xff]/g, '?');
   return Buffer.from(text, 'latin1');
 }
@@ -216,19 +219,21 @@ function generatePpd(fleet, dev) {
 function checkPpd(buf) {
   const text = buf.toString('latin1');
   const errors = [];
-  for (const k of ['*PPD-Adobe', '*FormatVersion', '*LanguageVersion', '*Manufacturer', '*ModelName', '*NickName', '*ShortNickName', '*PCFileName', '*Product', '*PSVersion', '*DefaultPageSize', '*DefaultPageRegion', '*DefaultImageableArea', '*DefaultPaperDimension']) if (!text.includes(k + ':')) errors.push(`${k} fehlt`);
+  for (const k of ['*PPD-Adobe', '*FormatVersion', '*LanguageVersion', '*Manufacturer', '*ModelName', '*NickName', '*ShortNickName', '*PCFileName', '*Product', '*PSVersion', '*DefaultPageSize', '*DefaultPageRegion', '*DefaultImageableArea', '*DefaultPaperDimension']) if (!text.includes(k + ':')) errors.push($t(`${k} fehlt`, `${k} missing`));
   const open = (text.match(/^\*OpenUI /gm) || []).length, close = (text.match(/^\*CloseUI:/gm) || []).length;
-  if (open !== close) errors.push('OpenUI/CloseUI ungleich');
+  if (open !== close) errors.push($t('OpenUI/CloseUI ungleich', 'OpenUI/CloseUI mismatch'));
   for (const mm of text.matchAll(/^\*OpenUI \*(\w+)/gm)) {
     const opt = mm[1];
     const dflt = new RegExp(`^\\*Default${opt}: (\\S+)`, 'm').exec(text);
-    if (!dflt) { errors.push(`*Default${opt} fehlt`); continue; }
-    if (!new RegExp(`^\\*${opt} ${dflt[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[/:]`, 'm').test(text)) errors.push(`Standardwert ${dflt[1]} für ${opt} nicht definiert`);
+    if (!dflt) { errors.push($t(`*Default${opt} fehlt`, `*Default${opt} missing`)); continue; }
+    if (!new RegExp(`^\\*${opt} ${dflt[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[/:]`, 'm').test(text)) errors.push($t(`Standardwert ${dflt[1]} für ${opt} nicht definiert`, `Default ${dflt[1]} for ${opt} not defined`));
   }
+  const mn = /\*ModelName: "([^"]*)"/.exec(text);
+  if (mn && /[^A-Za-z0-9 ._+-]/.test(mn[1])) errors.push($t('ModelName enthält unzulässige Zeichen', 'ModelName contains invalid characters'));
   const sn = /\*ShortNickName: "([^"]*)"/.exec(text);
-  if (sn && sn[1].length > 31) errors.push('ShortNickName > 31 Zeichen');
-  for (const line of text.split('\n')) if (line.length > 255) errors.push('Zeile > 255 Zeichen');
-  for (const mm of text.matchAll(/^\*(\w+) ([^/:\s]+)\/([^:]*):/gm)) if (mm[3].length > 80) errors.push(`Übersetzung zu lang: ${mm[1]} ${mm[2]}`);
+  if (sn && sn[1].length > 31) errors.push($t('ShortNickName > 31 Zeichen', 'ShortNickName > 31 characters'));
+  for (const line of text.split('\n')) if (line.length > 255) errors.push($t('Zeile > 255 Zeichen', 'Line > 255 characters'));
+  for (const mm of text.matchAll(/^\*(\w+) ([^/:\s]+)\/([^:]*):/gm)) if (mm[3].length > 80) errors.push($t(`Übersetzung zu lang: ${mm[1]} ${mm[2]}`, `Translation too long: ${mm[1]} ${mm[2]}`));
   return errors;
 }
 

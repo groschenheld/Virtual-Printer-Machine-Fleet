@@ -1,6 +1,7 @@
 'use strict';
 // Normalisiertes Job-Ticket + Zuordnung aus PJL / IPP / JDF / Presets – jede Einstellung
 // wird mit ihrer Quelle protokolliert.
+const { $t, $tp, $lazy } = require('../i18n.js');
 
 const { setPath, getPath, clone } = require('../util/misc');
 
@@ -79,7 +80,7 @@ function setTicket(job, path, value, source, quiet = false) {
   job.ticketSources[path] = source;
   if (!quiet) {
     const changed = JSON.stringify(old) !== JSON.stringify(value);
-    job.addLog('TICKET', `${path} = ${JSON.stringify(value)}   ⟵ ${source}${changed && old != null && old !== '' ? `  (vorher ${JSON.stringify(old)})` : ''}`);
+    job.addLog('TICKET', `${path} = ${JSON.stringify(value)}   ⟵ ${source}${changed && old != null && old !== '' ? $t(`  (vorher ${JSON.stringify(old)})`, `  (before ${JSON.stringify(old)})`) : ''}`);
   }
 }
 
@@ -95,7 +96,7 @@ function applyObject(job, obj, source, prefix = '') {
 
 function noteUnknown(job, key, value, source, hint) {
   job.ticket.unknown.push({ key, value, source });
-  job.warn('TICKET', `Nicht ausgewertete Einstellung ${key}=${JSON.stringify(value)} aus ${source}` + (hint ? ` – ${hint}` : ' – ein echtes Gerät würde sie ggf. ignorieren oder herstellerspezifisch auswerten'));
+  job.warn('TICKET', $t(`Nicht ausgewertete Einstellung ${key}=${JSON.stringify(value)} aus ${source}`, `Unevaluated setting ${key}=${JSON.stringify(value)} from ${source}`) + (hint ? ` – ${hint}` : $t(' – ein echtes Gerät würde sie ggf. ignorieren oder herstellerspezifisch auswerten', ' – a real device might ignore it or evaluate it vendor-specifically')));
 }
 
 // ---------------------------------------------------------------------------- PJL
@@ -106,7 +107,7 @@ function applyPjl(job, pjl) {
   const src = 'PJL';
   const { set, job: pjob, comments } = pjl;
   if (pjob.NAME) setTicket(job, 'jobName', pjob.NAME, 'PJL JOB NAME');
-  if (comments.length) job.addLog('TICKET', `PJL-Kommentare: ${comments.join(' | ')}`);
+  if (comments.length) job.addLog('TICKET', $t(`PJL-Kommentare: ${comments.join(' | ')}`, `PJL comments: ${comments.join(' | ')}`));
   for (const [k, v] of Object.entries(set)) {
     const V = v.toUpperCase();
     switch (k) {
@@ -116,7 +117,7 @@ function applyPjl(job, pjl) {
       case 'PAPER': case 'PAPERSIZE': {
         const s = sizeFromName(v);
         if (s) { setTicket(job, 'media.sizeMm', s, `${src} SET ${k}`); setTicket(job, 'media.sizeName', V, `${src} SET ${k}`); }
-        else noteUnknown(job, k, v, src, 'Formatname unbekannt');
+        else noteUnknown(job, k, v, src, $t('Formatname unbekannt', 'size name unknown'));
         break;
       }
       case 'MEDIASOURCE': case 'TRAY': setTicket(job, 'media.source', PJL_SOURCE[V] || v.toLowerCase(), `${src} SET ${k}`); break;
@@ -134,9 +135,9 @@ function applyPjl(job, pjl) {
       case 'OUTBIN': case 'OUTPUTBIN': setTicket(job, 'outputBin', v.toLowerCase(), `${src} SET ${k}`); break;
       case 'HOLD': if (V === 'ON' || V === 'STORE' || V === 'PROOF') setTicket(job, 'hold', true, `${src} SET HOLD`); break;
       case 'JOBNAME': setTicket(job, 'jobName', v, `${src} SET JOBNAME`); break;
-      case 'USERNAME': job.user = v; job.addLog('TICKET', `Benutzer = ${v}  ⟵ PJL SET USERNAME`); break;
+      case 'USERNAME': job.user = v; job.addLog('TICKET', $t(`Benutzer = ${v}  ⟵ PJL SET USERNAME`, `User = ${v}  ⟵ PJL SET USERNAME`)); break;
       case 'RESOLUTION': case 'ECONOMODE': case 'LPARM:PCL': case 'TIMEOUT': case 'JOBATTR':
-        job.addLog('TICKET', `PJL ${k}=${v} gelesen (für die Simulation ohne Wirkung)`); break;
+        job.addLog('TICKET', $t(`PJL ${k}=${v} gelesen (für die Simulation ohne Wirkung)`, `PJL ${k}=${v} read (no effect in the simulation)`)); break;
       default: noteUnknown(job, `PJL ${k}`, v, src);
     }
   }
@@ -174,7 +175,7 @@ function applyFinishingKeyword(job, kw, source) {
     setTicket(job, 'finishing.fold', m[1], source); return true;
   }
   if (kw === 'trim' || kw.startsWith('trim-after')) { setTicket(job, 'finishing.trimMm', 3, source); return true; }
-  if (kw === 'jog-offset') { job.addLog('TICKET', `Versatzablage (jog-offset) ⟵ ${source}`); return true; }
+  if (kw === 'jog-offset') { job.addLog('TICKET', $t(`Versatzablage (jog-offset) ⟵ ${source}`, `Offset stacking (jog-offset) ⟵ ${source}`)); return true; }
   return false;
 }
 

@@ -1,6 +1,7 @@
 'use strict';
 // Ablauf eines Jobs durch das simulierte Front-End und die Maschine:
 // Format → Ticket (PJL) → Halten? → Preflight → Material → Ausschießen → Finishing → Ausgabe → Druck.
+const { $t, $tp, $lazy } = require('../i18n.js');
 const fs = require('fs');
 const { normalize } = require('./detect');
 const { preflight, DEFAULT_CUT_NAMES } = require('./preflight');
@@ -39,12 +40,12 @@ async function processJob(dev, job) {
       job.resumeFrom = 'rip';
       // Halten?
       if (job.ticket.hold || job.queueMode === 'hold') {
-        job.setState('held', ['job-hold-until-specified'], `${fe.stages.held} – Freigabe am Front-End erforderlich`);
-        job.addLog('BEDIENER', `Job liegt in „${fe.stages.held}". Freigeben über Oberfläche, IPP Release-Job${fe.features.includes('fiery-api') ? ', Fiery-API' : ''}${fe.features.includes('jmf') ? ' oder JMF ResumeQueueEntry' : ''}.`);
+        job.setState('held', ['job-hold-until-specified'], $t(`${fe.stages.held} – Freigabe am Front-End erforderlich`, `${fe.stages.held} – release at the front end required`));
+        job.addLog('BEDIENER', $t(`Job liegt in „${fe.stages.held}". Freigeben über Oberfläche, IPP Release-Job${fe.features.includes('fiery-api') ? ', Fiery-API' : ''}${fe.features.includes('jmf') ? ' oder JMF ResumeQueueEntry' : ''}.`, `Job is in “${fe.stages.held}”. Release via the interface, IPP Release-Job${fe.features.includes('fiery-api') ? ', Fiery API' : ''}${fe.features.includes('jmf') ? ' or JMF ResumeQueueEntry' : ''}.`));
         return 'held';
       }
     }
-    if (job.queueMode === 'direct') job.addLog('STATUS', 'Direktverbindung: Job wird nach dem Druck nicht in der Druckliste gespeichert (Fiery „direct"). Für die Simulation bleibt das Protokoll erhalten.');
+    if (job.queueMode === 'direct') job.addLog('STATUS', $t('Direktverbindung: Job wird nach dem Druck nicht in der Druckliste gespeichert (Fiery „direct"). Für die Simulation bleibt das Protokoll erhalten.', 'Direct connection: the job is not kept in the print list after printing (Fiery “direct”). The log is kept for the simulation.'));
 
     // ------------------------------------------------ 2. RIP: Preflight, Material, Ausschießen
     if (job.resumeFrom === 'rip' || job.resumeFrom === 'media') {
@@ -72,14 +73,14 @@ async function processJob(dev, job) {
         if (policy === 'wait') {
           job.setState('waiting', [m.reason === 'media-empty' ? 'resources-are-not-ready' : 'resources-are-not-ready'], `${fe.stages.wait}: ${m.text}`);
           dev.setWaitingReason(m.reason === 'media-empty' ? 'media-empty-error' : 'media-needed-error', m.text);
-          const r = await dev.waitFor(job, () => dev.mediaVersionChanged(job), 'Material');
+          const r = await dev.waitFor(job, () => dev.mediaVersionChanged(job), $t('Material', 'Media'));
           dev.setWaitingReason(null);
           if (r === 'canceled') throw new Canceled();
-          job.addLog('BEDIENER', 'Material geändert – Job wird erneut geprüft');
+          job.addLog('BEDIENER', $t('Material geändert – Job wird erneut geprüft', 'Media changed – job is checked again'));
           return processJob(dev, job);
         }
         job.setState('held', ['resources-are-not-ready', 'job-hold-until-specified'], `${fe.stages.held}: ${m.text}`);
-        job.addLog('BEDIENER', 'Material einlegen bzw. Ticket ändern und Job freigeben (oder „Ersetzen" erzwingen).');
+        job.addLog('BEDIENER', $t('Material einlegen bzw. Ticket ändern und Job freigeben (oder „Ersetzen" erzwingen).', 'Load media or change the ticket and release the job (or force “Substitute”).'));
         return 'held';
       }
       const layout = res.layout;
@@ -90,11 +91,11 @@ async function processJob(dev, job) {
         if (policy === 'hold' && !job.ignoreConflicts) {
           job.resumeFrom = 'media';
           job.waitReason = { kind: 'conflict', text: conflicts.join('; ') };
-          job.setState('held', ['conflicting-attributes', 'job-hold-until-specified'], `Finishing-Konflikt: ${conflicts[0]}`);
-          job.addLog('BEDIENER', 'Konflikt beheben (Ticket ändern) oder „Trotzdem drucken" wählen – dann wird ohne die betroffene Weiterverarbeitung gedruckt.');
+          job.setState('held', ['conflicting-attributes', 'job-hold-until-specified'], $t(`Finishing-Konflikt: ${conflicts[0]}`, `Finishing conflict: ${conflicts[0]}`));
+          job.addLog('BEDIENER', $t('Konflikt beheben (Ticket ändern) oder „Trotzdem drucken" wählen – dann wird ohne die betroffene Weiterverarbeitung gedruckt.', 'Resolve the conflict (change the ticket) or choose “Print anyway” – then printing happens without the affected finishing.'));
           return 'held';
         }
-        job.addLog('FINISHING', 'Konflikte werden ignoriert – Druck ohne betroffene Weiterverarbeitung');
+        job.addLog('FINISHING', $t('Konflikte werden ignoriert – Druck ohne betroffene Weiterverarbeitung', 'Conflicts are ignored – printing without the affected finishing'));
       }
       await renderOutputs(ctx, layout);
       ctx.layout = layout;
@@ -114,16 +115,16 @@ async function processJob(dev, job) {
       job.resumeFrom = null;
       job.progress = 1;
       job.setState('completed', ['job-completed-successfully'], fe.stages.done);
-      job.addLog('STATUS', `Fertig – simulierte Laufzeit ${fmtSim(job.simMs)}, Ablage: ${layout.outputBin || '–'}`);
+      job.addLog('STATUS', $t(`Fertig – simulierte Laufzeit ${fmtSim(job.simMs)}, Ablage: ${layout.outputBin || '–'}`, `Done – simulated run time ${fmtSim(job.simMs)}, output tray: ${layout.outputBin || '–'}`));
       dev.afterJob(job, layout);
       return 'completed';
     }
   } catch (e) {
     if (e instanceof Canceled || job._cancel) {
-      job.setState('canceled', ['job-canceled-by-user'], 'Abgebrochen');
+      job.setState('canceled', ['job-canceled-by-user'], $t('Abgebrochen', 'Cancelled'));
       return 'canceled';
     }
-    job.error('STATUS', `Verarbeitung abgebrochen: ${e.message}`, e.stack ? e.stack.split('\n').slice(0, 4).join('\n') : undefined);
+    job.error('STATUS', $t(`Verarbeitung abgebrochen: ${e.message}`, `Processing aborted: ${e.message}`), e.stack ? e.stack.split('\n').slice(0, 4).join('\n') : undefined);
     job.setState('aborted', ['aborted-by-system', 'document-format-error'], e.message);
     return 'aborted';
   }
@@ -159,7 +160,7 @@ async function simulatePrint(ctx, layout) {
     const a4eq = sheetArea > a4 * 2.2 ? Math.ceil(sheetArea / (a4 * 2)) * 2 : sheetArea > a4 * 1.15 ? 2 : 1;
     const impPerSheet = layout.duplex ? 2 : 1;
     const msPerSheet = (60000 / device.speed.ppm) * a4eq * impPerSheet;
-    job.addLog('DRUCK', `${total} Bogen (${layout.totalImpressions} Drucke), Nenngeschwindigkeit ${device.speed.ppm} A4/min → ${r1(60000 / msPerSheet)} Bogen/min bei ${r1(layout.sheet.wMm)} × ${r1(layout.sheet.hMm)} mm${layout.duplex ? ' duplex' : ''}`);
+    job.addLog('DRUCK', $t(`${total} Bogen (${layout.totalImpressions} Drucke), Nenngeschwindigkeit ${device.speed.ppm} A4/min → ${r1(60000 / msPerSheet)} Bogen/min bei ${r1(layout.sheet.wMm)} × ${r1(layout.sheet.hMm)} mm${layout.duplex ? ' duplex' : ''}`, `${total} sheets (${layout.totalImpressions} impressions), rated speed ${device.speed.ppm} A4/min → ${r1(60000 / msPerSheet)} sheets/min at ${r1(layout.sheet.wMm)} × ${r1(layout.sheet.hMm)} mm${layout.duplex ? ' duplex' : ''}`));
     let slot = device.slots.find((s) => s.id === layout.slot);
     const batch = Math.max(1, Math.ceil(total / 40));
     let done = 0;
@@ -172,18 +173,18 @@ async function simulatePrint(ctx, layout) {
         if (!slot.loaded || slot.loaded.level <= 0 || slot.loaded.mediaId !== layout.media) {
           const alt = device.slots.find((s) => s.kind === 'sheet' && s.loaded && s.loaded.mediaId === layout.media && s.loaded.level > 0);
           if (alt && dev.settings.autoTraySwitch !== false) {
-            job.addLog('DRUCK', `${slot.name} leer → automatische Fachumschaltung auf ${alt.name} (gleiches Material)`);
+            job.addLog('DRUCK', $t(`${slot.name} leer → automatische Fachumschaltung auf ${alt.name} (gleiches Material)`, `${slot.name} empty → automatic tray switch to ${alt.name} (same media)`));
             slot = alt;
           } else {
-            const txt = `${slot.name} leer – ${fleet.catalog.get(layout.media)?.name || ''} nachlegen`;
+            const txt = $t(`${slot.name} leer – ${fleet.catalog.get(layout.media)?.name || ''} nachlegen`, `${slot.name} empty – refill ${fleet.catalog.get(layout.media)?.name || ''}`);
             job.warn('DRUCK', txt);
             job.setState('stopped', ['media-empty-error', 'job-printing'], txt);
             dev.setWaitingReason('media-empty-error', txt);
-            const r = await dev.waitFor(job, () => device.slots.some((s) => s.kind === 'sheet' && s.loaded && s.loaded.mediaId === layout.media && s.loaded.level > 0), 'Material');
+            const r = await dev.waitFor(job, () => device.slots.some((s) => s.kind === 'sheet' && s.loaded && s.loaded.mediaId === layout.media && s.loaded.level > 0), $t('Material', 'Media'));
             dev.setWaitingReason(null);
             if (r === 'canceled') throw new Canceled();
             job.setState('printing', ['job-printing'], fe.stages.print);
-            job.addLog('BEDIENER', 'Material nachgelegt – Druck läuft weiter');
+            job.addLog('BEDIENER', $t('Material nachgelegt – Druck läuft weiter', 'Media refilled – printing continues'));
             continue;
           }
         }
@@ -207,11 +208,11 @@ async function simulatePrint(ctx, layout) {
     if (job.ticket.finishing.staple && fin.stapler && layout.surfaces.some((s) => s.overlay.staples.length)) {
       const per = /dual/.test(job.ticket.finishing.staple) ? 2 : 1;
       fin.stapler.staples = Math.max(0, (fin.stapler.staples ?? 5000) - per * layout.sets);
-      job.addLog('FINISHING', `${per * layout.sets} Heftklammer(n) verbraucht, Rest ${fin.stapler.staples}`);
+      job.addLog('FINISHING', $t(`${per * layout.sets} Heftklammer(n) verbraucht, Rest ${fin.stapler.staples}`, `${per * layout.sets} staple(s) used, ${fin.stapler.staples} left`));
     }
     job.counters.sets = layout.sets;
     if (layout.mode === 'step-repeat' && layout.surfaces[0]?.stepRepeat) job.counters.cuts = layout.surfaces[0].stepRepeat.cuts;
-    job.addLog('DRUCK', `${total} Bogen gedruckt, ${layout.sets} Satz/Sätze → ${layout.outputBin}`);
+    job.addLog('DRUCK', $t(`${total} Bogen gedruckt, ${layout.sets} Satz/Sätze → ${layout.outputBin}`, `${total} sheets printed, ${layout.sets} set(s) → ${layout.outputBin}`));
   } else {
     // Rolle
     const segs = layout.surfaces;
@@ -223,7 +224,7 @@ async function simulatePrint(ctx, layout) {
       const ref = device.speed.refSizeMm[0] * device.speed.refSizeMm[1];
       msPer = (s) => (3600000 / device.speed.printsPerHour) * Math.max(0.5, (pt2mm(s.wPt) * pt2mm(s.hPt)) / ref);
     } else msPer = (s) => ((pt2mm(s.wPt) * (s.lengthMm || pt2mm(s.hPt))) / 1e6 / device.speed.m2h) * 3600000;
-    job.addLog('DRUCK', layout.kind === 'photo' ? `${units.length} Print(s), ca. ${device.speed.printsPerHour} Prints/h (10×15)` : `${units.length} Abschnitt(e), ${r2(layout.m2 || 0)} m², Druckleistung ${device.speed.m2h} m²/h`);
+    job.addLog('DRUCK', layout.kind === 'photo' ? `${units.length} Print(s), ca. ${device.speed.printsPerHour} Prints/h (10×15)` : $t(`${units.length} Abschnitt(e), ${r2(layout.m2 || 0)} m², Druckleistung ${device.speed.m2h} m²/h`, `${units.length} section(s), ${r2(layout.m2 || 0)} m², print speed ${device.speed.m2h} m²/h`));
     let i = 0;
     for (const s of units) {
       await dev.checkInterrupts(job);
@@ -232,11 +233,11 @@ async function simulatePrint(ctx, layout) {
       const needM = (s.lengthMm || pt2mm(s.hPt)) / 1000;
       const rest = slot && slot.loaded ? (slot.loaded.levelM ?? media?.lengthM ?? 0) : 0;
       if (!media || rest < needM) {
-        const txt = `${slot ? slot.name : 'Rolle'}: Rollenende – neue Rolle (${media ? media.name : 'Material'}) laden`;
+        const txt = $t(`${slot ? slot.name : 'Rolle'}: Rollenende – neue Rolle (${media ? media.name : 'Material'}) laden`, `${slot ? slot.name : 'Roll'}: end of roll – load a new roll (${media ? media.name : 'media'})`);
         job.warn('DRUCK', txt);
         job.setState('stopped', ['media-empty-error', 'job-printing'], txt);
         dev.setWaitingReason('media-empty-error', txt);
-        const r = await dev.waitFor(job, () => { const sl = device.slots.find((x) => x.id === s.slotId); const mm = sl && sl.loaded && fleet.catalog.get(sl.loaded.mediaId); return !!mm && (sl.loaded.levelM ?? mm.lengthM) >= needM; }, 'Rolle');
+        const r = await dev.waitFor(job, () => { const sl = device.slots.find((x) => x.id === s.slotId); const mm = sl && sl.loaded && fleet.catalog.get(sl.loaded.mediaId); return !!mm && (sl.loaded.levelM ?? mm.lengthM) >= needM; }, $t('Rolle', 'Roll'));
         dev.setWaitingReason(null);
         if (r === 'canceled') throw new Canceled();
         job.setState('printing', ['job-printing'], fe.stages.print);
@@ -249,8 +250,8 @@ async function simulatePrint(ctx, layout) {
       if (layout.kind === 'printcut' && layout.cutLengthMm) {
         const cutMs = (layout.cutLengthMm / (device.speed.cutMmS || 300)) * 1000 * 1.3;
         if (layout.mode === 'cut-only') t = cutMs; else t += cutMs + 15000; // + Markenerkennung
-        job.addLog('SCHNITT', `${layout.mode === 'cut-only' ? '' : 'Nach dem Druck: '}Medium zurückfahren, Schnittmarken einlesen (Sensor), dann ${r2(layout.cutLengthMm / 1000)} m Kontur schneiden (~${Math.round(cutMs / 1000)} s)`);
-        if (layout.mode !== 'cut-only' && layout.mode !== 'none') job.addLog('DRUCK', 'Hinweis: bei lösemittel-/latexbasierten Tinten ggf. Trocknungszeit vor dem Schneiden (in VersaWorks einstellbar)');
+        job.addLog('SCHNITT', $t(`${layout.mode === 'cut-only' ? '' : 'Nach dem Druck: '}Medium zurückfahren, Schnittmarken einlesen (Sensor), dann ${r2(layout.cutLengthMm / 1000)} m Kontur schneiden (~${Math.round(cutMs / 1000)} s)`, `${layout.mode === 'cut-only' ? '' : 'After printing: '}feed media back, read crop marks (sensor), then cut ${r2(layout.cutLengthMm / 1000)} m of contour (~${Math.round(cutMs / 1000)} s)`));
+        if (layout.mode !== 'cut-only' && layout.mode !== 'none') job.addLog('DRUCK', $t('Hinweis: bei lösemittel-/latexbasierten Tinten ggf. Trocknungszeit vor dem Schneiden (in VersaWorks einstellbar)', 'Note: with solvent/latex inks allow drying time before cutting if needed (adjustable in VersaWorks)'));
       }
       await dev.simDelay(job, t);
       i++;
@@ -264,7 +265,7 @@ async function simulatePrint(ctx, layout) {
       job._emit('progress', { done: i, total: units.length });
     }
     if (layout.kind === 'printcut' && layout.cuts) job.counters.cuts = (job.counters.cuts || 0) + layout.cuts;
-    job.addLog('DRUCK', `${units.length} ${layout.kind === 'photo' ? 'Print(s)' : 'Abschnitt(e)'} fertig, ${r2(job.counters.lengthMm / 1000)} m Rolle verbraucht → ${layout.outputBin}`);
+    job.addLog('DRUCK', $t(`${units.length} ${layout.kind === 'photo' ? 'Print(s)' : 'Abschnitt(e)'} fertig, ${r2(job.counters.lengthMm / 1000)} m Rolle verbraucht → ${layout.outputBin}`, `${units.length} ${layout.kind === 'photo' ? 'print(s)' : 'section(s)'} done, ${r2(job.counters.lengthMm / 1000)} m of roll used → ${layout.outputBin}`));
   }
 }
 

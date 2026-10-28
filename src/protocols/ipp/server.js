@@ -1,5 +1,6 @@
 'use strict';
 // IPP-Server je Gerät (http://host:port/ipp/print[/<warteschlange>]).
+const { $t, $tp, $lazy } = require('../../i18n.js');
 const crypto = require('crypto');
 const { decode, encode, attrsOf, v, OP, STATUS, describe, describeResponse } = require('./codec');
 const { setTicket, noteUnknown, sizeFromName, pwgName, IPP_FINISHINGS, IPP_FINISHINGS_REV, applyFinishingKeyword } = require('../../pipeline/ticket');
@@ -14,11 +15,37 @@ function uuidFor(id) {
   return `urn:uuid:${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-a${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
 
+/**
+ * printer-input-tray (PWG 5100.13, Felder wie prtInputTable der Printer-MIB):
+ * Maße in Mikrometern, bei Rollen mediafeed = Restlänge, mediaxfeed = Rollenbreite.
+ */
+function inputTray(slot, m) {
+  const roll = slot.kind === 'roll';
+  const um = (mm) => Math.round(mm * 1000);
+  const remainM = m ? (roll ? (slot.loaded.levelM ?? m.lengthM) : 0) : 0;
+  const f = {
+    type: roll ? 'continuousRoll' : slot.ippSource === 'manual' ? 'sheetFeedManual' : 'sheetFeedAutoRemovableTray',
+    dimunit: 'micrometers',
+    mediafeed: m ? (roll ? um(remainM * 1000) : um(Math.max(m.widthMm, m.heightMm))) : -2,
+    mediaxfeed: m ? (roll ? um(m.widthMm) : um(Math.min(m.widthMm, m.heightMm))) : -2,
+    maxcapacity: roll ? (m ? um(m.lengthM * 1000) : -2) : slot.capacity || -2,
+    level: !m ? 0 : roll ? um(remainM * 1000) : Math.max(0, slot.loaded.level),
+    capacityunit: roll ? 'micrometers' : 'sheets',
+    status: !m ? 19 : 0,
+    name: slot.ippSource,
+    medianame: m ? m.name.replace(/;/g, ',') : '',
+    mediatype: m ? m.ippType || 'stationery' : '',
+    mediaweight: m ? m.gsm : '',
+    description: slot.name.replace(/;/g, ','),
+  };
+  return Object.entries(f).map(([k, x]) => `${k}=${x}`).join(';') + ';';
+}
+
 function mediaCol(m, slot, device) {
   const margins = device.marginsMm || {};
   const hm = (mm) => v.int(Math.round(mm * 100));
   const size = m.kind === 'roll'
-    ? { 'x-dimension': hm(m.widthMm), 'y-dimension': v.range(Math.round((device.roll?.minLengthMm || 100) * 100), Math.round(Math.min(device.roll?.maxLengthMm || 50000, m.lengthM * 1000) * 100)) }
+    ? { 'x-dimension': hm(m.widthMm), 'y-dimension': v.range(Math.round((device.roll?.minLengthMm || 100) * 100), Math.round(Math.min(device.roll?.maxLengthMm || 50000, ((slot && slot.loaded && slot.loaded.levelM != null) ? slot.loaded.levelM : m.lengthM) * 1000) * 100)) }
     : { 'x-dimension': hm(Math.min(m.widthMm, m.heightMm)), 'y-dimension': hm(Math.max(m.widthMm, m.heightMm)) };
   const col = {
     'media-key': v.kw(m.id),
@@ -118,7 +145,7 @@ function printerAttributes(fleet, dev, baseUri, queueName) {
     'media-bottom-margin-supported': v.int(Math.round((c.marginsMm.bottom || 0) * 100)),
     'media-left-margin-supported': v.int(Math.round((c.marginsMm.left || 0) * 100)),
     'media-right-margin-supported': v.int(Math.round((c.marginsMm.right || 0) * 100)),
-    'printer-input-tray': c.slots.map((s) => v.octets(`type=${s.kind === 'roll' ? 'continuousRoll' : 'sheetFeedAutoRemovableTray'};mediafeed=0;mediaxfeed=0;maxcapacity=${s.capacity || -2};level=${s.kind === 'roll' ? (s.loaded ? Math.round(s.loaded.levelM ?? 0) : 0) : s.loaded ? s.loaded.level : 0};status=${s.loaded ? 0 : 19};name=${s.ippSource};`)),
+    'printer-input-tray': c.slots.map((s) => v.octets(inputTray(s, fleet.catalog.get(s.loaded?.mediaId)))),
     'finishings-default': v.enum(3),
     'finishings-supported': Array.from(new Set(fins)).map((f) => v.enum(f)),
     'finishings-col-supported': [v.kw('finishing-template')],
@@ -182,7 +209,7 @@ function applyJobAttributes(job, attrs, dev, fleet) {
     switch (k) {
       case 'copies': setTicket(job, 'copies', Math.max(1, Number(val) || 1), src(k)); break;
       case 'sides':
-        if (val !== 'one-sided' && !dev.cfg.duplex) { unsupported[k] = v.kw(val); job.warn('TICKET', `sides=${val} nicht unterstützt (Gerät kann nicht duplex) → one-sided`); }
+        if (val !== 'one-sided' && !dev.cfg.duplex) { unsupported[k] = v.kw(val); job.warn('TICKET', $t(`sides=${val} nicht unterstützt (Gerät kann nicht duplex) → one-sided`, `sides=${val} not supported (device cannot print duplex) → one-sided`)); }
         else setTicket(job, 'sides', val, src(k));
         break;
       case 'media': {
@@ -191,7 +218,7 @@ function applyJobAttributes(job, attrs, dev, fleet) {
         else {
           const s = sizeFromName(val);
           if (s) { setTicket(job, 'media.sizeMm', s, src(k)); setTicket(job, 'media.sizeName', val, src(k)); }
-          else { unsupported[k] = v.kw(val); noteUnknown(job, k, val, 'IPP', 'Medienname unbekannt'); }
+          else { unsupported[k] = v.kw(val); noteUnknown(job, k, val, 'IPP', $t('Medienname unbekannt', 'media name unknown')); }
         }
         break;
       }
@@ -202,7 +229,7 @@ function applyJobAttributes(job, attrs, dev, fleet) {
           const x = col['media-size']['x-dimension'], y = col['media-size']['y-dimension'];
           const yy = typeof y === 'object' ? null : y;
           if (yy) setTicket(job, 'media.sizeMm', [x / 100, yy / 100], src('media-col.media-size'));
-          else if (dev.cfg.kind !== 'sheet') job.addLog('TICKET', `media-col.media-size: Rollenbreite ${x / 100} mm angefordert`);
+          else if (dev.cfg.kind !== 'sheet') job.addLog('TICKET', $t(`media-col.media-size: Rollenbreite ${x / 100} mm angefordert`, `media-col.media-size: roll width ${x / 100} mm requested`));
         }
         if (col['media-size-name']) { const s = sizeFromName(col['media-size-name']); if (s && !col['media-size']) setTicket(job, 'media.sizeMm', s, src('media-col.media-size-name')); }
         if (col['media-source'] && col['media-source'] !== 'auto') setTicket(job, 'media.source', col['media-source'], src('media-col.media-source'));
@@ -211,7 +238,7 @@ function applyJobAttributes(job, attrs, dev, fleet) {
         for (const mk of Object.keys(col)) if (!['media-key', 'media-size', 'media-size-name', 'media-source', 'media-type', 'media-weight-metric', 'media-color', 'media-info', 'media-top-margin', 'media-bottom-margin', 'media-left-margin', 'media-right-margin'].includes(mk)) noteUnknown(job, `media-col.${mk}`, col[mk], 'IPP');
         if (['media-top-margin', 'media-bottom-margin', 'media-left-margin', 'media-right-margin'].some((x) => col[x] === 0)) {
           if (dev.cfg.roll?.borderless) setTicket(job, 'roll.borderless', true, src('media-col.*-margin=0'));
-          else job.warn('TICKET', 'Randlos (Ränder 0) angefordert – Gerät druckt mit Rand');
+          else job.warn('TICKET', $t('Randlos (Ränder 0) angefordert – Gerät druckt mit Rand', 'Borderless (margins 0) requested – device prints with margins'));
         }
         break;
       }
@@ -221,10 +248,10 @@ function applyJobAttributes(job, attrs, dev, fleet) {
         const kw = vals.map((n) => IPP_FINISHINGS[n] || String(n));
         const bad = [];
         for (const f of kw) if (!applyFinishingKeyword(job, f, src('finishings'))) bad.push(f);
-        if (bad.length) { unsupported[k] = bad.map((b) => v.enum(IPP_FINISHINGS_REV[b] || 3)); job.warn('TICKET', `finishings ${bad.join(', ')} von der Simulation nicht umgesetzt`); }
+        if (bad.length) { unsupported[k] = bad.map((b) => v.enum(IPP_FINISHINGS_REV[b] || 3)); job.warn('TICKET', $t(`finishings ${bad.join(', ')} von der Simulation nicht umgesetzt`, `finishings ${bad.join(', ')} not implemented by the simulation`)); }
         if (dev.cfg.kind === 'wide' && job.ticket.finishing.fold) {
           const map = { 'engineering-z': 'din824-a', z: 'din824-a', 'half-z': 'din824-a', poster: 'din824-b', accordion: 'fan' };
-          if (map[job.ticket.finishing.fold]) setTicket(job, 'finishing.fold', map[job.ticket.finishing.fold], `IPP finishings → Faltmaschine (${job.ticket.finishing.fold})`);
+          if (map[job.ticket.finishing.fold]) setTicket(job, 'finishing.fold', map[job.ticket.finishing.fold], $t(`IPP finishings → Faltmaschine (${job.ticket.finishing.fold})`, `IPP finishings → folder (${job.ticket.finishing.fold})`));
         }
         break;
       }
@@ -243,7 +270,7 @@ function applyJobAttributes(job, attrs, dev, fleet) {
       case 'multiple-document-handling': setTicket(job, 'collate', !/uncollated/.test(val), src(k)); break;
       case 'sheet-collate': setTicket(job, 'collate', val !== 'uncollated', src(k)); break;
       case 'print-quality': case 'printer-resolution': case 'print-content-optimize': case 'print-rendering-intent':
-        job.addLog('TICKET', `${k}=${JSON.stringify(val)} gelesen (Qualitätseinstellung, ohne Einfluss auf das Layout)`); break;
+        job.addLog('TICKET', $t(`${k}=${JSON.stringify(val)} gelesen (Qualitätseinstellung, ohne Einfluss auf das Layout)`, `${k}=${JSON.stringify(val)} read (quality setting, no influence on the layout)`)); break;
       default:
         if (/^(job-name|requesting-user-name|document-format|document-name|compression|attributes-|printer-uri|job-uri|job-id|last-document|ipp-attribute-fidelity|job-k-octets|job-impressions|job-media-sheets|document-natural-language|job-password|job-uuid|job-originating-host-name)/.test(k)) break;
         unsupported[k] = typeof val === 'number' ? v.int(val) : v.kw(String(Array.isArray(val) ? val[0] : val));
@@ -259,7 +286,7 @@ function jobAttributes(job, baseUri, requested) {
     'job-uri': v.uri(`${baseUri}/jobs/${job.id}`),
     'job-printer-uri': v.uri(baseUri),
     'job-name': v.name(job.name),
-    'job-originating-user-name': v.name(job.user || 'unbekannt'),
+    'job-originating-user-name': v.name(job.user || $t('unbekannt', 'unknown')),
     'job-state': v.enum(job.ippState),
     'job-state-reasons': (job.stateReasons.length ? job.stateReasons : ['none']).map((r) => v.kw(r)),
     'job-state-message': v.text(job.stateMessage || job.stateText),
@@ -289,7 +316,7 @@ function jobAttributes(job, baseUri, requested) {
  * Bearbeitet eine IPP-HTTP-Anfrage für ein Gerät.
  */
 async function handleIpp(fleet, dev, req, body, pathname) {
-  const host = req.headers.host || `${fleet.settings.bindHost}:${dev.cfg.ports.http}`;
+  const host = req.headers.host || `${fleet.netOf(dev.cfg).host}:${fleet.netOf(dev.cfg).http}`;
   const m = /^\/ipp\/print(?:\/([^/]+))?/.exec(pathname);
   const queueName = m && m[1] ? decodeURIComponent(m[1]) : null;
   const baseUri = `ipp://${host}/ipp/print${queueName ? '/' + encodeURIComponent(queueName) : ''}`;
@@ -297,7 +324,7 @@ async function handleIpp(fleet, dev, req, body, pathname) {
   const remote = `${req.socket.remoteAddress}:${req.socket.remotePort}`;
   let msg;
   try { msg = decode(body); } catch (e) {
-    dev.trace('ipp', 'in', `Ungültige IPP-Nachricht von ${remote}: ${e.message}`);
+    dev.trace('ipp', 'in', $t(`Ungültige IPP-Nachricht von ${remote}: ${e.message}`, `Invalid IPP message from ${remote}: ${e.message}`));
     return encode({ code: 0x0400, requestId: 0, groups: [{ tag: 1, attrs: { 'attributes-charset': v.charset('utf-8'), 'attributes-natural-language': v.lang('de') } }] });
   }
   const op = OP[msg.code] || `0x${msg.code.toString(16)}`;
@@ -308,7 +335,7 @@ async function handleIpp(fleet, dev, req, body, pathname) {
   const respond = (code, groups = [], job) => {
     const resp = { version: msg.version === '1.1' ? '1.1' : '2.0', code, requestId: msg.requestId, groups: [opGroup, ...groups] };
     const text = describeResponse(resp);
-    if (job) job.addProtocol('out', `IPP-Antwort ${STATUS[code]}`, text);
+    if (job) job.addProtocol('out', $t(`IPP-Antwort ${STATUS[code]}`, `IPP response ${STATUS[code]}`), text);
     dev.trace('ipp', 'out', `${op} → ${STATUS[code] || code}`, text);
     return encode(resp);
   };
@@ -320,7 +347,7 @@ async function handleIpp(fleet, dev, req, body, pathname) {
     return j && j.deviceId === dev.id ? j : null;
   };
   const noisy = ['Get-Printer-Attributes', 'Get-Jobs', 'Get-Job-Attributes'].includes(op);
-  dev.trace('ipp', 'in', `${op} von ${remote}${queueName ? ' (Queue ' + queueName + ')' : ''}`, reqText, noisy);
+  dev.trace('ipp', 'in', $t(`${op} von ${remote}${queueName ? ' (Queue ' + queueName + ')' : ''}`, `${op} from ${remote}${queueName ? ' (queue ' + queueName + ')' : ''}`), reqText, noisy);
 
   switch (msg.code) {
     case 0x000b: { // Get-Printer-Attributes
@@ -331,19 +358,19 @@ async function handleIpp(fleet, dev, req, body, pathname) {
       const tmp = { ticket: require('../../pipeline/ticket').baseTicket(), ticketSources: {}, addLog() {}, warn() {} };
       const uns = applyJobAttributes(tmp, jobAttrsIn, dev, fleet);
       const fmt = opAttrs['document-format'];
-      if (fmt && !FORMATS.includes(fmt)) { statusMsg(`document-format ${fmt} nicht unterstützt`); return respond(0x040a, [{ tag: 5, attrs: { 'document-format': v.mime(fmt) } }]); }
+      if (fmt && !FORMATS.includes(fmt)) { statusMsg($t(`document-format ${fmt} nicht unterstützt`, `document-format ${fmt} not supported`)); return respond(0x040a, [{ tag: 5, attrs: { 'document-format': v.mime(fmt) } }]); }
       return respond(Object.keys(uns).length ? 0x0001 : 0x0000, Object.keys(uns).length ? [{ tag: 5, attrs: uns }] : []);
     }
     case 0x0002: case 0x0005: { // Print-Job / Create-Job
-      if (!dev.status.accepting) { statusMsg('Drucker nimmt keine Jobs an (offline)'); return respond(0x0506); }
+      if (!dev.status.accepting) { statusMsg($t('Drucker nimmt keine Jobs an (offline)', 'Printer is not accepting jobs (offline)')); return respond(0x0506); }
       const fmt = opAttrs['document-format'];
-      if (fmt && !FORMATS.includes(fmt)) { statusMsg(`document-format ${fmt} nicht unterstützt`); return respond(0x040a, [{ tag: 5, attrs: { 'document-format': v.mime(fmt) } }]); }
+      if (fmt && !FORMATS.includes(fmt)) { statusMsg($t(`document-format ${fmt} nicht unterstützt`, `document-format ${fmt} not supported`)); return respond(0x040a, [{ tag: 5, attrs: { 'document-format': v.mime(fmt) } }]); }
       const job = fleet.createJob(dev.id, { name: opAttrs['job-name'] || opAttrs['document-name'] || null, user: opAttrs['requesting-user-name'], source: { protocol: 'IPP', op, remote, queue: queueName || dev.queues[0].name }, queue: queueName });
-      job.addProtocol('in', `IPP ${op} von ${remote}`, reqText);
+      job.addProtocol('in', $t(`IPP ${op} von ${remote}`, `IPP ${op} from ${remote}`), reqText);
       const uns = applyJobAttributes(job, jobAttrsIn, dev, fleet);
       for (const [k, val] of Object.entries(opAttrs)) if (!/^(attributes-|printer-uri|requesting-user-name|job-name|document-format|document-name|ipp-attribute-fidelity|compression|job-k-octets|job-impressions|job-media-sheets|document-natural-language|job-password|job-uuid|job-originating-host-name|requested-attributes)/.test(k)) applyJobAttributes(job, { [k]: val }, dev, fleet);
       if (opAttrs['ipp-attribute-fidelity'] === true && Object.keys(uns).length) {
-        job.setState('aborted', ['unsupported-attributes'], 'ipp-attribute-fidelity=true und nicht unterstützte Attribute');
+        job.setState('aborted', ['unsupported-attributes'], $t('ipp-attribute-fidelity=true und nicht unterstützte Attribute', 'ipp-attribute-fidelity=true and unsupported attributes'));
         return respond(0x040b, [{ tag: 5, attrs: uns }], job);
       }
       const jobGroup = { tag: 2, attrs: {} };
@@ -351,7 +378,7 @@ async function handleIpp(fleet, dev, req, body, pathname) {
         fleet.submit(job, msg.data, { filename: opAttrs['document-name'] || null, format: fmt });
       } else {
         job._docs = [];
-        job.setState('receiving', ['job-incoming'], 'Warte auf Send-Document');
+        job.setState('receiving', ['job-incoming'], $t('Warte auf Send-Document', 'Waiting for Send-Document'));
       }
       Object.assign(jobGroup.attrs, jobAttributes(job, rootUri));
       const groups = [];
@@ -361,8 +388,8 @@ async function handleIpp(fleet, dev, req, body, pathname) {
     }
     case 0x0006: { // Send-Document
       const job = findJob();
-      if (!job) { statusMsg('Job nicht gefunden'); return respond(0x0406); }
-      job.addProtocol('in', `IPP Send-Document von ${remote}`, reqText);
+      if (!job) { statusMsg($t('Job nicht gefunden', 'Job not found')); return respond(0x0406); }
+      job.addProtocol('in', $t(`IPP Send-Document von ${remote}`, `IPP Send-Document from ${remote}`), reqText);
       job._docs = job._docs || [];
       if (msg.data.length) job._docs.push(msg.data);
       if (opAttrs['document-name'] && !job.ticket.jobName) job.name = opAttrs['document-name'];
@@ -372,14 +399,14 @@ async function handleIpp(fleet, dev, req, body, pathname) {
     case 0x003b: { // Close-Job
       const job = findJob();
       if (!job) return respond(0x0406);
-      job.addProtocol('in', `IPP Close-Job von ${remote}`, reqText);
+      job.addProtocol('in', $t(`IPP Close-Job von ${remote}`, `IPP Close-Job from ${remote}`), reqText);
       if (job.state === 'receiving') await finishMultiDoc(fleet, job, opAttrs);
       return respond(0x0000, [{ tag: 2, attrs: jobAttributes(job, rootUri) }], job);
     }
     case 0x0009: { // Get-Job-Attributes
       const job = findJob();
-      if (!job) { statusMsg('Job nicht gefunden'); return respond(0x0406); }
-      job.protocol.length < 400 && job.addProtocol('in', `IPP Get-Job-Attributes (Statusabfrage) von ${remote}`, reqText);
+      if (!job) { statusMsg($t('Job nicht gefunden', 'Job not found')); return respond(0x0406); }
+      job.protocol.length < 400 && job.addProtocol('in', $t(`IPP Get-Job-Attributes (Statusabfrage) von ${remote}`, `IPP Get-Job-Attributes (status query) from ${remote}`), reqText);
       return respond(0x0000, [{ tag: 2, attrs: jobAttributes(job, rootUri, opAttrs['requested-attributes'] || 'all') }], job.protocol.length < 400 ? job : null);
     }
     case 0x000a: { // Get-Jobs
@@ -394,8 +421,8 @@ async function handleIpp(fleet, dev, req, body, pathname) {
     }
     case 0x0008: case 0x000c: case 0x000d: case 0x000e: { // Cancel / Hold / Release / Restart
       const job = findJob();
-      if (!job) { statusMsg('Job nicht gefunden'); return respond(0x0406); }
-      job.addProtocol('in', `IPP ${op} von ${remote}`, reqText);
+      if (!job) { statusMsg($t('Job nicht gefunden', 'Job not found')); return respond(0x0406); }
+      job.addProtocol('in', $t(`IPP ${op} von ${remote}`, `IPP ${op} from ${remote}`), reqText);
       try {
         fleet.jobAction(job.id, { 0x0008: 'cancel', 0x000c: 'hold', 0x000d: 'release', 0x000e: 'reprint' }[msg.code]);
         return respond(0x0000, [], job);
@@ -403,16 +430,16 @@ async function handleIpp(fleet, dev, req, body, pathname) {
     }
     case 0x0010: dev.setError('paused', true); return respond(0x0000);
     case 0x0011: dev.setError('paused', false); return respond(0x0000);
-    case 0x003c: fleet.log(dev.id, 'info', `Identify-Printer von ${remote}: Gerät „piept" (Simulation)`); return respond(0x0000);
+    case 0x003c: fleet.log(dev.id, 'info', $t(`Identify-Printer von ${remote}: Gerät „piept" (Simulation)`, `Identify-Printer from ${remote}: device “beeps” (simulation)`)); return respond(0x0000);
     default:
-      statusMsg(`${op} wird nicht unterstützt`);
+      statusMsg($t(`${op} wird nicht unterstützt`, `${op} is not supported`));
       return respond(0x0501);
   }
 }
 
 async function finishMultiDoc(fleet, job, opAttrs) {
   const docs = job._docs || [];
-  if (!docs.length) { job.setState('aborted', ['job-data-insufficient'], 'Keine Dokumentdaten'); return; }
+  if (!docs.length) { job.setState('aborted', ['job-data-insufficient'], $t('Keine Dokumentdaten', 'No document data')); return; }
   let data = docs[0];
   if (docs.length > 1) {
     const { PDFDocument } = require('../../vendor/pdf-lib');
@@ -425,7 +452,7 @@ async function finishMultiDoc(fleet, job, opAttrs) {
       pages.forEach((p) => out.addPage(p));
     }
     data = Buffer.from(await out.save());
-    job.addLog('EMPFANG', `${docs.length} Dokumente zu einem Job zusammengeführt (multiple-document-handling)`);
+    job.addLog('EMPFANG', $t(`${docs.length} Dokumente zu einem Job zusammengeführt (multiple-document-handling)`, `${docs.length} documents merged into one job (multiple-document-handling)`));
   }
   delete job._docs;
   fleet.submit(job, data, { filename: opAttrs['document-name'] || null, format: opAttrs['document-format'] });

@@ -1,5 +1,6 @@
 'use strict';
 // Rollen-Layout für Großformat (Canon colorWAVE, Epson SureColor) und Foto-Minilabs (Epson SureLab).
+const { $t, $tp, $lazy } = require('../../i18n.js');
 const { mm2pt, pt2mm, r1, fmtSize } = require('../../util/misc');
 const { place, newSurface } = require('./common');
 const { selectRoll, rollsOf } = require('../media');
@@ -14,12 +15,15 @@ function imposeWide(ctx) {
   const borderless = !!(ticket.roll.borderless && cap.borderless);
   const m = borderless ? 0 : device.marginsMm.left || 0;
   const mEnd = borderless ? 0 : device.marginsMm.top || 0;
-  const nesting = ticket.roll.nesting === true && cap.nesting;
+  const feat = (ctx.fe && ctx.fe.features) || [];
+  const nesting = ticket.roll.nesting === true && cap.nesting && feat.includes('nesting');
+  if (ticket.roll.nesting === true && !nesting) job.warn('AUSSCHUSS', $t(`Nesting angefordert, aber ${ctx.fe ? ctx.fe.label : 'das Front-End'} kann das nicht (nur mit Software-RIP) – eine Seite je Abschnitt`, `Nesting requested, but ${ctx.fe ? ctx.fe.label : 'the front end'} cannot do that (only with a software RIP) – one page per section`));
+  if (ticket.roll.tiling && !feat.includes('tiling')) { job.warn('AUSSCHUSS', $t('Kacheln angefordert – nur mit Software-RIP möglich, ignoriert', 'Tiling requested – only possible with a software RIP, ignored')); ticket.roll.tiling = false; }
   const allowRot = ticket.roll.rotate !== 0 && ticket.roll.rotate !== '0' && ticket.roll.rotate !== 'none';
   const cutMode = ticket.roll.takeUp ? 'none' : (ticket.roll.cut === 'auto' ? (device.finisher.modules.cutter?.modes || ['auto'])[0] : ticket.roll.cut);
-  job.addLog('AUSSCHUSS', `Rollenmodus: ${nesting ? 'Nesting (mehrere Seiten nebeneinander)' : 'eine Seite je Abschnitt'}; Drehung ${allowRot ? 'automatisch' : 'aus'}; ${borderless ? 'randlos' : `Ränder ${m} mm seitlich / ${mEnd} mm Anfang/Ende`}; Schnitt: ${cutMode}`);
+  job.addLog('AUSSCHUSS', $t(`Rollenmodus: ${nesting ? 'Nesting (mehrere Seiten nebeneinander)' : 'eine Seite je Abschnitt'}; Drehung ${allowRot ? 'automatisch' : 'aus'}; ${borderless ? 'randlos' : `Ränder ${m} mm seitlich / ${mEnd} mm Anfang/Ende`}; Schnitt: ${cutMode}`, `Roll mode: ${nesting ? 'nesting (several pages side by side)' : 'one page per section'}; rotation ${allowRot ? 'automatic' : 'off'}; ${borderless ? 'borderless' : `margins ${m} mm side / ${mEnd} mm leading/trailing`}; cut: ${cutMode}`));
   const loaded = rollsOf(device, catalog).filter((r) => r.media);
-  if (!loaded.length) return { ok: false, media: { ok: false, reason: 'media-empty', text: 'Keine Rolle geladen' } };
+  if (!loaded.length) return { ok: false, media: { ok: false, reason: 'media-empty', text: $t('Keine Rolle geladen', 'No roll loaded') } };
   const surfaces = [];
   const consumption = new Map();
   let totalLen = 0;
@@ -46,7 +50,7 @@ function imposeWide(ctx) {
       if (ticket.media.type) candidates = candidates.filter((o) => o.r.media.type === ticket.media.type || o.r.media.ippType === ticket.media.type);
       candidates.sort((a, b) => a.r.media.widthMm - b.r.media.widthMm || a.along - b.along);
       let pick = candidates[0];
-      const label = `für Seite ${pg.index + 1} (${fmtSize(pw, ph)})`;
+      const label = $t(`für Seite ${pg.index + 1} (${fmtSize(pw, ph)})`, `for page ${pg.index + 1} (${fmtSize(pw, ph)})`);
       if (!pick) {
         // Kacheln oder Skalieren?
         const widest = loaded.slice().sort((a, b) => b.media.widthMm - a.media.widthMm)[0];
@@ -56,13 +60,13 @@ function imposeWide(ctx) {
           pick.oversize = true;
         } else {
           selectRoll(device, catalog, ticket, Math.min(pw, ph) + 2 * m, Math.max(pw, ph), job, label);
-          return { ok: false, media: { ok: false, reason: 'media-needed', text: `Keine Rolle ≥ ${r1(Math.min(pw, ph) + 2 * m)} mm geladen (Seite ${pg.index + 1}, ${fmtSize(pw, ph)})`, wanted: { widthMm: Math.min(pw, ph) + 2 * m } } };
+          return { ok: false, media: { ok: false, reason: 'media-needed', text: $t(`Keine Rolle ≥ ${r1(Math.min(pw, ph) + 2 * m)} mm geladen (Seite ${pg.index + 1}, ${fmtSize(pw, ph)})`, `No roll ≥ ${r1(Math.min(pw, ph) + 2 * m)} mm loaded (page ${pg.index + 1}, ${fmtSize(pw, ph)})`), wanted: { widthMm: Math.min(pw, ph) + 2 * m } } };
         }
       }
       const sel = selectRoll(device, catalog, { ...ticket, media: { ...ticket.media, source: pick.r.slot.id } }, pick.oversize ? 0 : pick.across + (ticket.roll.addMargins ? 2 * m : 0), (pick.along + leadTrim) * ticket.copies, job, label);
       if (!sel.ok) return { ok: false, media: sel };
       const W = pick.r.media.widthMm;
-      if (pick.rot) job.addLog('AUSSCHUSS', `Seite ${pg.index + 1} um 90° gedreht → ${r1(pick.across)} mm quer zur Rolle (spart Rollenbreite)`);
+      if (pick.rot) job.addLog('AUSSCHUSS', $t(`Seite ${pg.index + 1} um 90° gedreht → ${r1(pick.across)} mm quer zur Rolle (spart Rollenbreite)`, `Page ${pg.index + 1} rotated by 90° → ${r1(pick.across)} mm across the roll (saves roll width)`));
       // Kacheln
       const usable = W - 2 * m;
       const tiles = [];
@@ -70,23 +74,23 @@ function imposeWide(ctx) {
         const ov = ticket.roll.overlapMm || 10;
         const n = Math.ceil((pick.across - ov) / (usable - ov));
         for (let t = 0; t < n; t++) tiles.push({ offsetMm: t * (usable - ov), widthMm: Math.min(usable, pick.across - t * (usable - ov)) });
-        job.warn('AUSSCHUSS', `Seite ${pg.index + 1} breiter als Rolle (${r1(pick.across)} > ${usable} mm) → ${n} Kacheln à max. ${usable} mm mit ${ov} mm Überlappung`);
+        job.warn('AUSSCHUSS', $t(`Seite ${pg.index + 1} breiter als Rolle (${r1(pick.across)} > ${usable} mm) → ${n} Kacheln à max. ${usable} mm mit ${ov} mm Überlappung`, `Page ${pg.index + 1} wider than the roll (${r1(pick.across)} > ${usable} mm) → ${n} tiles of max. ${usable} mm with ${ov} mm overlap`));
       } else tiles.push({ offsetMm: 0, widthMm: pick.across });
       let scale = 1;
       if (pick.oversize && !ticket.roll.tiling) {
         scale = usable / pick.across;
-        job.warn('AUSSCHUSS', `Seite ${pg.index + 1} auf ${r1(scale * 100)} % verkleinert, um auf ${W} mm Rolle zu passen`);
+        job.warn('AUSSCHUSS', $t(`Seite ${pg.index + 1} auf ${r1(scale * 100)} % verkleinert, um auf ${W} mm Rolle zu passen`, `Page ${pg.index + 1} reduced to ${r1(scale * 100)} % to fit the ${W} mm roll`));
       }
       for (const tile of tiles) {
         segNo++;
         let lenMm = pick.along * scale + (ticket.roll.addMargins ? 2 * mEnd : 0);
         if (cutMode === 'standard') {
           const std = DIN_LENGTHS.find((d) => d >= lenMm - 0.5);
-          if (std && std !== Math.round(lenMm)) job.addLog('SCHNITT', `Formatschnitt: Länge ${r1(lenMm)} mm → Normlänge ${std} mm`);
+          if (std && std !== Math.round(lenMm)) job.addLog('SCHNITT', $t(`Formatschnitt: Länge ${r1(lenMm)} mm → Normlänge ${std} mm`, `Standard-length cut: length ${r1(lenMm)} mm → standard length ${std} mm`));
           if (std) lenMm = std;
         }
-        if (cap.maxLengthMm && lenMm > cap.maxLengthMm) job.warn('AUSSCHUSS', `Abschnitt ${r1(lenMm)} mm länger als max. ${cap.maxLengthMm} mm`);
-        const s = newSurface({ id: `r${segNo}`, kind: 'roll', label: `Abschnitt ${segNo} – ${pick.r.slot.name}`, wPt: mm2pt(W), hPt: mm2pt(lenMm), slotId: pick.r.slot.id, mediaId: pick.r.media.id, mediaName: pick.r.media.name, sheetNo: segNo, feed: 'up' });
+        if (cap.maxLengthMm && lenMm > cap.maxLengthMm) job.warn('AUSSCHUSS', $t(`Abschnitt ${r1(lenMm)} mm länger als max. ${cap.maxLengthMm} mm`, `Section ${r1(lenMm)} mm longer than max. ${cap.maxLengthMm} mm`));
+        const s = newSurface({ id: `r${segNo}`, kind: 'roll', label: $t(`Abschnitt ${segNo} – ${pick.r.slot.name}`, `Section ${segNo} – ${pick.r.slot.name}`), wPt: mm2pt(W), hPt: mm2pt(lenMm), slotId: pick.r.slot.id, mediaId: pick.r.media.id, mediaName: pick.r.media.name, sheetNo: segNo, feed: 'up' });
         const pr = { x: mm2pt(m), y: mm2pt(borderless ? 0 : mEnd), w: mm2pt(usable), h: mm2pt(lenMm - (borderless ? 0 : 2 * mEnd)) };
         s.printable = pr;
         if (!borderless) {
@@ -96,13 +100,13 @@ function imposeWide(ctx) {
         const yOff = ticket.roll.addMargins ? mm2pt(mEnd) : 0;
         const dispW = pick.across * scale, dispH = pick.along * scale;
         const xLeft = tiles.length > 1 ? mm2pt(m - tile.offsetMm) : (ticket.roll.addMargins ? mm2pt(m) : 0);
-        if (segNo === 1 && !borderless && !ticket.roll.addMargins && m) job.addLog('AUSSCHUSS', `Druckbild beginnt an der Rollenkante – Inhalte in den ${m} mm Randbereichen werden nicht gedruckt (Option „Ränder hinzufügen" würde die Länge um ${2 * mEnd} mm verlängern)`);
+        if (segNo === 1 && !borderless && !ticket.roll.addMargins && m) job.addLog('AUSSCHUSS', $t(`Druckbild beginnt an der Rollenkante – Inhalte in den ${m} mm Randbereichen werden nicht gedruckt (Option „Ränder hinzufügen" würde die Länge um ${2 * mEnd} mm verlängern)`, `Print image starts at the roll edge – content in the ${m} mm margin areas is not printed (option “Add margins” would extend the length by ${2 * mEnd} mm)`));
         const p = place(pg, 'crop', pick.rot, { x: xLeft, y: yOff, w: mm2pt(dispW), h: mm2pt(dispH) }, scale === 1 ? 1 : 'fit', 'bottom-left');
         p.clip = tiles.length > 1 ? { x: mm2pt(m), y: 0, w: mm2pt(tile.widthMm), h: s.hPt } : pr;
-        p.label = `S.${pg.index + 1}${tiles.length > 1 ? ` Kachel ${tiles.indexOf(tile) + 1}/${tiles.length}` : ''}`;
+        p.label = `S.${pg.index + 1}${tiles.length > 1 ? $t(` Kachel ${tiles.indexOf(tile) + 1}/${tiles.length}`, ` tile ${tiles.indexOf(tile) + 1}/${tiles.length}`) : ''}`;
         s.placements.push(p);
         const usedW = tiles.length > 1 ? tile.widthMm + m : (ticket.roll.addMargins ? dispW + 2 * m : dispW);
-        if (W - usedW > 1) s.overlay.areas.push({ x: mm2pt(usedW), y: 0, w: mm2pt(W - usedW), h: s.hPt, kind: 'waste', label: `Restbreite ${r1(W - usedW)} mm` });
+        if (W - usedW > 1) s.overlay.areas.push({ x: mm2pt(usedW), y: 0, w: mm2pt(W - usedW), h: s.hPt, kind: 'waste', label: $t(`Restbreite ${r1(W - usedW)} mm`, `Remaining width ${r1(W - usedW)} mm`) });
         if (cutMode !== 'none') {
           s.overlay.cuts.push({ x1: 0, y1: s.hPt, x2: s.wPt, y2: s.hPt, kind: 'roll-cut', n: 1 });
         }
@@ -110,11 +114,11 @@ function imposeWide(ctx) {
         s.rot = pick.rot;
         surfaces.push(s);
         addCons(pick.r.slot, lenMm * ticket.copies);
-        job.addLog('AUSSCHUSS', `Abschnitt ${segNo}: ${pick.r.slot.name} (${W} mm) – Länge ${r1(lenMm)} mm, Druckbild ${r1(dispW)} × ${r1(dispH)} mm, Restbreite ${r1(Math.max(0, W - usedW))} mm`);
+        job.addLog('AUSSCHUSS', $t(`Abschnitt ${segNo}: ${pick.r.slot.name} (${W} mm) – Länge ${r1(lenMm)} mm, Druckbild ${r1(dispW)} × ${r1(dispH)} mm, Restbreite ${r1(Math.max(0, W - usedW))} mm`, `Section ${segNo}: ${pick.r.slot.name} (${W} mm) – length ${r1(lenMm)} mm, print image ${r1(dispW)} × ${r1(dispH)} mm, remaining width ${r1(Math.max(0, W - usedW))} mm`));
       }
     }
-    if (cutMode === 'none') job.addLog('SCHNITT', 'Kein Querschnitt (Aufwickler/kein Schnitt) – Abschnitte bleiben auf der Rolle');
-    else job.addLog('SCHNITT', `${cutMode === 'synchro' ? 'Synchronschnitt (Länge = Zeichnung)' : cutMode === 'standard' ? 'Formatschnitt (Normlänge)' : 'Automatischer Querschnitt'} nach jedem Abschnitt`);
+    if (cutMode === 'none') job.addLog('SCHNITT', $t('Kein Querschnitt (Aufwickler/kein Schnitt) – Abschnitte bleiben auf der Rolle', 'No cross cut (take-up reel/no cut) – sections stay on the roll'));
+    else job.addLog('SCHNITT', $t(`${cutMode === 'synchro' ? 'Synchronschnitt (Länge = Zeichnung)' : cutMode === 'standard' ? 'Formatschnitt (Normlänge)' : 'Automatischer Querschnitt'} nach jedem Abschnitt`, `${cutMode === 'synchro' ? 'Synchro cut (length = drawing)' : cutMode === 'standard' ? 'Standard-length cut' : 'Automatic cross cut'} after each section`));
   } else {
     // ---------- Nesting ----------
     const gap = cap.gapMm || 5;
@@ -137,7 +141,7 @@ function imposeWide(ctx) {
         const score = (fitsRow ? 0 : 1e6) + h; // in bestehende Reihe, niedrige Höhe bevorzugt
         if (!chosen || score < chosen.score) chosen = { rot, w, h, score, fitsRow };
       }
-      if (!chosen) return { ok: false, media: { ok: false, reason: 'media-needed', text: `Seite ${pg.index + 1} breiter als nutzbare Rollenbreite ${usable} mm` } };
+      if (!chosen) return { ok: false, media: { ok: false, reason: 'media-needed', text: $t(`Seite ${pg.index + 1} breiter als nutzbare Rollenbreite ${usable} mm`, `Page ${pg.index + 1} wider than the usable roll width ${usable} mm`) } };
       if (!chosen.fitsRow) { row = { items: [], used: -gap, h: 0 }; rows.push(row); }
       row.items.push({ pg, rot: chosen.rot, w: chosen.w, h: chosen.h, x: row.used + gap });
       row.used += gap + chosen.w;
@@ -164,10 +168,10 @@ function imposeWide(ctx) {
     s.lengthMm = totalH;
     surfaces.push(s);
     addCons(sel.slot, totalH * ticket.copies);
-    job.addLog('AUSSCHUSS', `Nesting: ${n} Seiten in ${rows.length} Reihe(n) auf ${W} mm (nutzbar ${usable} mm), Abstand ${gap} mm, Länge ${r1(totalH)} mm; Ausnutzung ${r1((items.reduce((a, pg) => a + pt2mm(pg.wPt) * pt2mm(pg.hPt), 0) / (W * totalH)) * 100)} %`);
+    job.addLog('AUSSCHUSS', $t(`Nesting: ${n} Seiten in ${rows.length} Reihe(n) auf ${W} mm (nutzbar ${usable} mm), Abstand ${gap} mm, Länge ${r1(totalH)} mm; Ausnutzung ${r1((items.reduce((a, pg) => a + pt2mm(pg.wPt) * pt2mm(pg.hPt), 0) / (W * totalH)) * 100)} %`, `Nesting: ${n} pages in ${rows.length} row(s) on ${W} mm (usable ${usable} mm), gap ${gap} mm, length ${r1(totalH)} mm; utilisation ${r1((items.reduce((a, pg) => a + pt2mm(pg.wPt) * pt2mm(pg.hPt), 0) / (W * totalH)) * 100)} %`));
   }
   if (leadTrim && surfaces.length) {
-    job.addLog('SCHNITT', `Anschnitt am Rollenanfang: ${leadTrim} mm Abfall (Kantenbegradigung)`);
+    job.addLog('SCHNITT', $t(`Anschnitt am Rollenanfang: ${leadTrim} mm Abfall (Kantenbegradigung)`, `Leading trim at the start of the roll: ${leadTrim} mm waste (edge straightening)`));
     const first = surfaces[0];
     addCons({ id: first.slotId }, leadTrim);
   }
@@ -189,7 +193,7 @@ function imposePhoto(ctx) {
   const cap = device.roll;
   const over = cap.overspillMm || 0;
   const loaded = rollsOf(device, catalog).filter((r) => r.media);
-  if (!loaded.length) return { ok: false, media: { ok: false, reason: 'media-empty', text: 'Keine Papierrolle geladen' } };
+  if (!loaded.length) return { ok: false, media: { ok: false, reason: 'media-empty', text: $t('Keine Papierrolle geladen', 'No paper roll loaded') } };
   const surfaces = [];
   const consumption = new Map();
   let n = 0;
@@ -205,16 +209,16 @@ function imposePhoto(ctx) {
       if (Math.abs(W - a) <= 1.5) opts.push({ r, across: a, along: b });
       else if (Math.abs(W - b) <= 1.5) opts.push({ r, across: b, along: a });
     }
-    const label = `für Print ${fmtSize(a, b)}`;
+    const label = $t(`für Print ${fmtSize(a, b)}`, `for print ${fmtSize(a, b)}`);
     const rows = loaded.map((r) => ({ rolle: r.slot.name, papier: r.media.name, breite: r.media.widthMm, passt: opts.some((o) => o.r === r) }));
-    job.addLog('MATERIAL', `Rollenwahl ${label} – Rollenbreite muss einer Printkante entsprechen (${a} oder ${b} mm)`, rows);
+    job.addLog('MATERIAL', $t(`Rollenwahl ${label} – Rollenbreite muss einer Printkante entsprechen (${a} oder ${b} mm)`, `Roll selection ${label} – roll width must match a print edge (${a} or ${b} mm)`), rows);
     if (!opts.length) {
-      return { ok: false, media: { ok: false, reason: 'media-needed', text: `Printgröße ${fmtSize(a, b)} benötigt eine Rolle mit ${a} mm oder ${b} mm Breite`, wanted: { widthMm: a } } };
+      return { ok: false, media: { ok: false, reason: 'media-needed', text: $t(`Printgröße ${fmtSize(a, b)} benötigt eine Rolle mit ${a} mm oder ${b} mm Breite`, `Print size ${fmtSize(a, b)} needs a roll ${a} mm or ${b} mm wide`), wanted: { widthMm: a } } };
     }
-    if (b > cap.maxLengthMm) job.warn('AUSSCHUSS', `Printlänge ${b} mm über Maximallänge ${cap.maxLengthMm} mm`);
+    if (b > cap.maxLengthMm) job.warn('AUSSCHUSS', $t(`Printlänge ${b} mm über Maximallänge ${cap.maxLengthMm} mm`, `Print length ${b} mm above maximum length ${cap.maxLengthMm} mm`));
     if (ticket.media.type) {
       const t = opts.filter((o) => o.r.media.type === ticket.media.type || o.r.media.ippType === ticket.media.type);
-      if (!t.length) return { ok: false, media: { ok: false, reason: 'media-needed', text: `Papiertyp ${ticket.media.type} nicht geladen` } };
+      if (!t.length) return { ok: false, media: { ok: false, reason: 'media-needed', text: $t(`Papiertyp ${ticket.media.type} nicht geladen`, `Paper type ${ticket.media.type} not loaded`) } };
       opts.splice(0, opts.length, ...t);
     }
     const o = opts.sort((x, y) => x.along - y.along)[0];
@@ -228,19 +232,19 @@ function imposePhoto(ctx) {
       const fit = ticket.photo.fit === 'fit' ? 'fit' : 'fill';
       const p = place(pg, 'crop', rot, fit === 'fit' ? { x: 0, y: 0, w: s.wPt, h: s.hPt } : cell, fit);
       p.clip = { x: 0, y: 0, w: s.wPt, h: s.hPt };
-      p.label = `Bild ${pg.index + 1}`;
+      p.label = $t(`Bild ${pg.index + 1}`, `Image ${pg.index + 1}`);
       s.placements.push(p);
       // Beschnitt berechnen
       const visW = Math.min(p.rect.w, s.wPt), visH = Math.min(p.rect.h, s.hPt);
       const cropX = Math.max(0, p.rect.w - s.wPt), cropY = Math.max(0, p.rect.h - s.hPt);
       if (fit === 'fill' && (cropX > 1 || cropY > 1)) {
-        job.addLog('AUSSCHUSS', `Print ${n}: Bild ${fmtSize(iw, ih)}${rot ? ' (gedreht)' : ''} auf ${fmtSize(o.across, o.along)} gefüllt → Beschnitt ${r1(pt2mm(cropX))} mm quer / ${r1(pt2mm(cropY))} mm längs (${r1((1 - (visW * visH) / (p.rect.w * p.rect.h)) * 100)} % der Bildfläche abgeschnitten)`);
+        job.addLog('AUSSCHUSS', $t(`Print ${n}: Bild ${fmtSize(iw, ih)}${rot ? ' (gedreht)' : ''} auf ${fmtSize(o.across, o.along)} gefüllt → Beschnitt ${r1(pt2mm(cropX))} mm quer / ${r1(pt2mm(cropY))} mm längs (${r1((1 - (visW * visH) / (p.rect.w * p.rect.h)) * 100)} % der Bildfläche abgeschnitten)`, `Print ${n}: image ${fmtSize(iw, ih)}${rot ? ' (rotated)' : ''} filled onto ${fmtSize(o.across, o.along)} → crop ${r1(pt2mm(cropX))} mm across / ${r1(pt2mm(cropY))} mm along (${r1((1 - (visW * visH) / (p.rect.w * p.rect.h)) * 100)} % of the image area cut off)`));
         // sichtbar abgeschnittene Bereiche markieren (außerhalb des Prints – in Overlay als Notiz)
-        s.overlay.notes.push({ x: 2, y: s.hPt - 8, text: `Beschnitt ${r1(pt2mm(cropX))}/${r1(pt2mm(cropY))} mm` });
+        s.overlay.notes.push({ x: 2, y: s.hPt - 8, text: $t(`Beschnitt ${r1(pt2mm(cropX))}/${r1(pt2mm(cropY))} mm`, `crop ${r1(pt2mm(cropX))}/${r1(pt2mm(cropY))} mm`) });
       } else if (fit === 'fit') {
-        job.addLog('AUSSCHUSS', `Print ${n}: Bild eingepasst (weißer Rand ${r1(pt2mm(s.wPt - p.rect.w) / 2)} / ${r1(pt2mm(s.hPt - p.rect.h) / 2)} mm)`);
+        job.addLog('AUSSCHUSS', $t(`Print ${n}: Bild eingepasst (weißer Rand ${r1(pt2mm(s.wPt - p.rect.w) / 2)} / ${r1(pt2mm(s.hPt - p.rect.h) / 2)} mm)`, `Print ${n}: image fitted (white border ${r1(pt2mm(s.wPt - p.rect.w) / 2)} / ${r1(pt2mm(s.hPt - p.rect.h) / 2)} mm)`));
       }
-      if (over) s.overlay.areas.push({ x: 0, y: 0, w: s.wPt, h: s.hPt, kind: 'overspill', label: `Randlos: ${over} mm Überdruck je Kante` });
+      if (over) s.overlay.areas.push({ x: 0, y: 0, w: s.wPt, h: s.hPt, kind: 'overspill', label: $t(`Randlos: ${over} mm Überdruck je Kante`, `Borderless: ${over} mm overprint per edge`) });
       s.overlay.cuts.push({ x1: 0, y1: s.hPt, x2: s.wPt, y2: s.hPt, kind: 'roll-cut', n: 1 });
       if (ticket.photo.backprint) s.backprint = String(ticket.photo.backprint).replace('{n}', n).replace('{datei}', job.name);
       s.lengthMm = o.along;
@@ -248,8 +252,8 @@ function imposePhoto(ctx) {
     }
     consumption.set(o.r.slot.id, (consumption.get(o.r.slot.id) || 0) + o.along * ticket.copies);
   }
-  if (ticket.photo.backprint) job.addLog('FINISHING', `Rückseitendruck je Print: „${ticket.photo.backprint}"`);
-  job.addLog('SCHNITT', `Schneider: ${surfaces.length * ticket.copies} Querschnitt(e), randlos mit ${over} mm Überdruck`);
+  if (ticket.photo.backprint) job.addLog('FINISHING', $t(`Rückseitendruck je Print: „${ticket.photo.backprint}"`, `Back printing per print: “${ticket.photo.backprint}”`));
+  job.addLog('SCHNITT', $t(`Schneider: ${surfaces.length * ticket.copies} Querschnitt(e), randlos mit ${over} mm Überdruck`, `Cutter: ${surfaces.length * ticket.copies} cross cut(s), borderless with ${over} mm overprint`));
   const lengthMm = Array.from(consumption.values()).reduce((a, b) => a + b, 0);
   return {
     ok: true,

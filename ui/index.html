@@ -11,23 +11,25 @@
   <header class="top">
     <a class="brand" href="#/"><span class="logo"></span>Virtual Print Fleet<small>Simulation</small></a>
     <nav>
-      <a href="#/">Maschinenpark</a>
-      <a href="#/jobs">Alle Jobs</a>
-      <a href="#/media">Materialkatalog</a>
-      <a href="#/log">Ereignisse</a>
+      <a href="#/" data-en="Machine park">Maschinenpark</a>
+      <a href="#/jobs" data-en="All jobs">Alle Jobs</a>
+      <a href="#/media" data-en="Media catalogue">Materialkatalog</a>
+      <a href="#/log" data-en="Events">Ereignisse</a>
     </nav>
     <div class="top-right">
-      <label class="tf">Zeitraffer
+      <label class="tf"><span data-en="Time lapse">Zeitraffer</span>
         <select id="timeFactor">
-          <option value="0">sofort</option>
-          <option value="1">Echtzeit</option>
+          <option value="0" data-en="instant">sofort</option>
+          <option value="1" data-en="real time">Echtzeit</option>
           <option value="5">5×</option>
           <option value="20">20×</option>
           <option value="100">100×</option>
         </select>
       </label>
-      <button class="ghost" id="btnSettings" title="Einstellungen">Einstellungen</button>
-      <span id="live" class="live" title="Live-Verbindung">●</span>
+      <button class="ghost" id="btnControl" title="Steuerzentrale: Simulation ein/aus, Drucker ein/aus" data-en-title="Control centre: simulation on/off, printers on/off" data-en="⏻ Control">⏻ Steuerung</button>
+      <button class="ghost" id="btnSettings" title="Einstellungen" data-en-title="Settings" data-en="Settings">Einstellungen</button>
+      <button class="ghost" id="btnLang" title="English">EN</button>
+      <span id="live" class="live" title="Live-Verbindung" data-en-title="Live connection">●</span>
     </div>
   </header>
   <div class="shell">

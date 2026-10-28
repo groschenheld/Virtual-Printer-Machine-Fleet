@@ -1,4 +1,5 @@
 'use strict';
+const { $t, $tp, $lazy } = require('../i18n.js');
 // Parser für multipart/form-data und multipart/related (MIME-Pakete für JMF/JDF).
 
 function getBoundary(contentType) {
@@ -16,7 +17,7 @@ function parseHeaderParams(value) {
 
 function parseMultipart(buf, contentType) {
   const boundary = getBoundary(contentType);
-  if (!boundary) throw new Error('multipart ohne boundary');
+  if (!boundary) throw new Error($t('multipart ohne boundary', 'multipart without boundary'));
   const delim = Buffer.from('--' + boundary);
   const parts = [];
   let pos = buf.indexOf(delim);

@@ -4,6 +4,7 @@
 //  nachweis.pdf – dasselbe mit ein-/ausblendbaren Ebenen: Schnitt, Falz, Heftung/Lochung, Nutzen, Abfall, Info
 //  layout.json  – Geometrie für die Oberfläche
 //  schnitt.camm – Schneiddaten (Print & Cut)
+const { $t, $tp, $lazy } = require('../i18n.js');
 const fs = require('fs');
 const { PDFDocument, StandardFonts, rgb, degrees, PDFName, PDFHexString, PDFOperator, PDFOperatorNames,
   pushGraphicsState, popGraphicsState, rectangle, clip, endPath, moveTo, lineTo, appendBezierCurve, closePath, stroke,
@@ -16,12 +17,12 @@ const C = {
   staple: rgb(0.05, 0.45, 0.2), hole: rgb(0.75, 0, 0.6), place: rgb(0, 0.6, 0.75), info: rgb(0.15, 0.15, 0.18),
   frame: rgb(0.93, 0.93, 0.94), waste: rgb(0.55, 0.55, 0.58), unprint: rgb(0.7, 0.7, 0.72), sheet: rgb(1, 1, 1), mark: rgb(0, 0, 0),
 };
-const LAYERS = ['Druckbild', 'Nicht druckbar / Abfall', 'Nutzen & Seiten', 'Schnitt', 'Falz', 'Heftung & Lochung', 'Info'];
+const LAYERS = $lazy([$tp('Druckbild', 'Print image'), $tp('Nicht druckbar / Abfall', 'Non-printable / waste'), $tp('Nutzen & Seiten', 'Items & pages'), $tp('Schnitt', 'Cut'), $tp('Falz', 'Fold'), $tp('Heftung & Lochung', 'Stapling & punching'), 'Info']);
 
 function setupOCGs(doc) {
   const ctx = doc.context;
   const refs = LAYERS.map((n) => ctx.register(ctx.obj({ Type: 'OCG', Name: PDFHexString.fromText(n) })));
-  doc.catalog.set(PDFName.of('OCProperties'), ctx.obj({ OCGs: refs, D: { Name: PDFHexString.fromText('Simulationsebenen'), Order: refs, ON: refs } }));
+  doc.catalog.set(PDFName.of('OCProperties'), ctx.obj({ OCGs: refs, D: { Name: PDFHexString.fromText($t('Simulationsebenen', 'Simulation layers')), Order: refs, ON: refs } }));
   return refs;
 }
 
@@ -88,9 +89,9 @@ async function renderOutputs(ctx, layout) {
   const { job, device, pf } = ctx;
   const out = await PDFDocument.create();
   const proof = await PDFDocument.create();
-  out.setTitle(`${job.name} – Ausgabe ${device.name}`);
+  out.setTitle($t(`${job.name} – Ausgabe ${device.name}`, `${job.name} – output ${device.name}`));
   out.setProducer('Virtual Print Fleet (Simulation)');
-  proof.setTitle(`${job.name} – Nachweis ${device.name}`);
+  proof.setTitle($t(`${job.name} – Nachweis ${device.name}`, `${job.name} – proof ${device.name}`));
   proof.setProducer('Virtual Print Fleet (Simulation)');
   const fontO = await out.embedFont(StandardFonts.Helvetica);
   const font = await proof.embedFont(StandardFonts.Helvetica);
@@ -130,7 +131,7 @@ async function renderOutputs(ctx, layout) {
     for (const p of s.placements) {
       const r = p.rect;
       pp.drawRectangle({ x: r.x + dx, y: r.y + dy, width: r.w, height: r.h, borderColor: C.place, borderWidth: 0.4, borderDashArray: [1.5, 1.5], opacity: 0, borderOpacity: 0.9 });
-      if (p.label && r.w > 20) label(pp, font, p.label + (p.noPrint ? ' (nicht gedruckt)' : '') + (p.formRot ? ` ${p.formRot}°` : '') + (p.scale && Math.abs(p.scale - 1) > 0.001 ? ` ${r1(p.scale * 100)}%` : ''), r.x + dx + 2, r.y + dy + r.h - 7, 5.5, C.place);
+      if (p.label && r.w > 20) label(pp, font, p.label + (p.noPrint ? $t(' (nicht gedruckt)', ' (not printed)') : '') + (p.formRot ? ` ${p.formRot}°` : '') + (p.scale && Math.abs(p.scale - 1) > 0.001 ? ` ${r1(p.scale * 100)}%` : ''), r.x + dx + 2, r.y + dy + r.h - 7, 5.5, C.place);
     }
     endLayer(pp);
 
@@ -172,18 +173,18 @@ async function renderOutputs(ctx, layout) {
     beginLayer(pp, 6);
     const head = `${device.name}  ·  ${s.label}  ·  ${s.mediaName || ''}`;
     label(pp, fontB, head, dx, H - mm2pt(7), 8);
-    const sub = `Fläche ${fmtSize(pt2mm(s.wPt), pt2mm(s.hPt))}  ·  Job ${job.id} „${job.name}"  ·  ${si + 1}/${layout.surfaces.length}${s.side === 'back' ? '  ·  Rückseite (von hinten gesehen)' : ''}${s.tumble ? '  ·  Wenden an kurzer Kante' : ''}`;
+    const sub = $t(`Fläche ${fmtSize(pt2mm(s.wPt), pt2mm(s.hPt))}  ·  Job ${job.id} „${job.name}"  ·  ${si + 1}/${layout.surfaces.length}${s.side === 'back' ? '  ·  Rückseite (von hinten gesehen)' : ''}${s.tumble ? '  ·  Wenden an kurzer Kante' : ''}`, `Surface ${fmtSize(pt2mm(s.wPt), pt2mm(s.hPt))}  ·  job ${job.id} “${job.name}”  ·  ${si + 1}/${layout.surfaces.length}${s.side === 'back' ? '  ·  back (seen from behind)' : ''}${s.tumble ? '  ·  tumble on short edge' : ''}`);
     label(pp, font, sub, dx, H - mm2pt(12), 6.5);
     if (s.overlay.feed === 'up') {
       const ax = dx - mm2pt(6), ay0 = dy + s.hPt * 0.4, ay1 = ay0 + mm2pt(14);
       pp.drawLine({ start: { x: ax, y: ay0 }, end: { x: ax, y: ay1 }, thickness: 1, color: C.info });
       pp.drawLine({ start: { x: ax, y: ay1 }, end: { x: ax - 2.5, y: ay1 - 4 }, thickness: 1, color: C.info });
       pp.drawLine({ start: { x: ax, y: ay1 }, end: { x: ax + 2.5, y: ay1 - 4 }, thickness: 1, color: C.info });
-      label(pp, font, 'Vorschub', ax - 10, ay0 - 8, 5);
+      label(pp, font, $t('Vorschub', 'Feed'), ax - 10, ay0 - 8, 5);
     }
-    if (s.backprint) label(pp, font, `Rückseitendruck: ${s.backprint}`, dx, dy - mm2pt(4), 6);
+    if (s.backprint) label(pp, font, $t(`Rückseitendruck: ${s.backprint}`, `Back printing: ${s.backprint}`), dx, dy - mm2pt(4), 6);
     for (const n of s.overlay.notes) if (n.text) label(pp, font, n.text, n.x + dx, n.y + dy, 5.5, C.trim);
-    const legend = 'Legende: rot = Schnitt/Kontur (gestrichelt = Perforation) · orange = Frontbeschnitt/Überdruck · blau = Falz (Strich-Punkt = Bergfalz) · grün = Heftklammer · magenta = Lochung · grau = nicht bedruckbar/Abfall';
+    const legend = $t('Legende: rot = Schnitt/Kontur (gestrichelt = Perforation) · orange = Frontbeschnitt/Überdruck · blau = Falz (Strich-Punkt = Bergfalz) · grün = Heftklammer · magenta = Lochung · grau = nicht bedruckbar/Abfall', 'Legend: red = cut/contour (dashed = perforation) · orange = face trim/overprint · blue = fold (dash-dot = mountain fold) · green = staple · magenta = punching · grey = non-printable/waste');
     label(pp, font, legend, dx, mm2pt(3.5), 5);
     endLayer(pp);
   }
@@ -193,7 +194,7 @@ async function renderOutputs(ctx, layout) {
   fs.writeFileSync(job.file('nachweis.pdf'), nachweis);
   job.outputs.ausgabe = 'ausgabe.pdf';
   job.outputs.nachweis = 'nachweis.pdf';
-  job.addLog('AUSGABE', `ausgabe.pdf (${layout.surfaces.length} Seite(n), ${(ausgabe.length / 1024).toFixed(0)} KB) und nachweis.pdf mit Ebenen (${LAYERS.join(', ')}) erzeugt`);
+  job.addLog('AUSGABE', $t(`ausgabe.pdf (${layout.surfaces.length} Seite(n), ${(ausgabe.length / 1024).toFixed(0)} KB) und nachweis.pdf mit Ebenen (${LAYERS.join(', ')}) erzeugt`, `ausgabe.pdf (${layout.surfaces.length} page(s), ${(ausgabe.length / 1024).toFixed(0)} KB) and nachweis.pdf with layers (${LAYERS.join(', ')}) created`));
 
   // Layout für die UI
   const ui = {
@@ -263,7 +264,7 @@ function buildCammGl(surface, device, job) {
     }
   }
   lines.push('PU0,0;');
-  job.addLog('SCHNITT', `Schneiddaten erzeugt: ${ordered.length} Polylinien (${ordered.filter((p) => p.kind === 'perf').length} Perforation zuerst, als 3/1,5-mm-Schnittfolge), Reihenfolge nach kürzestem Leerweg; Einheiten 0,025 mm ab linker unterer Schnittmarke → schnitt.camm`);
+  job.addLog('SCHNITT', $t(`Schneiddaten erzeugt: ${ordered.length} Polylinien (${ordered.filter((p) => p.kind === 'perf').length} Perforation zuerst, als 3/1,5-mm-Schnittfolge), Reihenfolge nach kürzestem Leerweg; Einheiten 0,025 mm ab linker unterer Schnittmarke → schnitt.camm`, `Cut data created: ${ordered.length} polylines (${ordered.filter((p) => p.kind === 'perf').length} perforation first, as 3/1.5 mm cut sequence), order by shortest travel; units 0.025 mm from the lower left crop mark → schnitt.camm`));
   return lines.join('\n') + '\n';
 }
 

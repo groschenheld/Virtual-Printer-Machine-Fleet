@@ -1,5 +1,6 @@
 'use strict';
 // IPP/1.1 & 2.0 Binärformat (RFC 8010) – Dekodieren/Enkodieren inkl. Collections.
+const { $t, $tp, $lazy } = require('../../i18n.js');
 
 const TAG = {
   operation: 0x01, job: 0x02, end: 0x03, printer: 0x04, unsupported: 0x05,
@@ -209,7 +210,7 @@ function describe(msg, isRequest = true) {
     lines.push(`  [${g.name}-attributes-tag]`);
     for (const [k, val] of Object.entries(g.attrs)) lines.push(`    ${k} = ${fmtVal(val)}`);
   }
-  if (msg.data && msg.data.length) lines.push(`  [Dokumentdaten: ${msg.data.length.toLocaleString('de-DE')} Bytes]`);
+  if (msg.data && msg.data.length) lines.push($t(`  [Dokumentdaten: ${msg.data.length.toLocaleString('de-DE')} Bytes]`, `  [document data: ${msg.data.length.toLocaleString('en-US')} bytes]`));
   return lines.join('\n');
 }
 function fmtVal(val) {
@@ -228,7 +229,7 @@ function describeResponse(resp, max = 60) {
     lines.push(`  [${GROUP_NAME[g.tag] || g.tag}-attributes-tag]`);
     const entries = Object.entries(g.attrs);
     for (const [k, val] of entries.slice(0, max)) lines.push(`    ${k} = ${fmtEnc(val)}`);
-    if (entries.length > max) lines.push(`    … ${entries.length - max} weitere Attribute`);
+    if (entries.length > max) lines.push($t(`    … ${entries.length - max} weitere Attribute`, `    … ${entries.length - max} more attributes`));
   }
   return lines.join('\n');
 }

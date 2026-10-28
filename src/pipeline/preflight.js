@@ -1,4 +1,5 @@
 'use strict';
+const { $t, $tp, $lazy } = require('../i18n.js');
 const { PDFDocument } = require('../vendor/pdf-lib');
 const { analyzePage, pathsBBox } = require('./contentparser');
 const { pt2mm, r1, fmtSize } = require('../util/misc');
@@ -32,7 +33,7 @@ async function preflight(pdfBytes, job, cutNames) {
     const tw = trim[2] - trim[0], th = trim[3] - trim[1];
     let analysis = { spots: [], cuts: [] };
     if (i < 300) {
-      try { analysis = analyzePage(doc, p, names); } catch (e) { job.warn('PREFLIGHT', `Seite ${i + 1}: Inhaltsanalyse fehlgeschlagen (${e.message})`); }
+      try { analysis = analyzePage(doc, p, names); } catch (e) { job.warn('PREFLIGHT', $t(`Seite ${i + 1}: Inhaltsanalyse fehlgeschlagen (${e.message})`, `Page ${i + 1}: content analysis failed (${e.message})`)); }
     }
     analysis.spots.forEach((s) => allSpots.add(s));
     cutCount += analysis.cuts.length;
@@ -51,16 +52,16 @@ async function preflight(pdfBytes, job, cutNames) {
     const key = fmtSize(pt2mm(p.wPt), pt2mm(p.hPt));
     sizes[key] = (sizes[key] || 0) + 1;
   }
-  job.addLog('PREFLIGHT', `PDF ${doc.getPageCount()} Seite(n); Formate: ${Object.entries(sizes).map(([k, v]) => `${v}× ${k}${nameFromSize(...k.split(' × ').map(parseFloat)) ? ' (' + nameFromSize(...k.split(' × ').map(parseFloat)) + ')' : ''}`).join(', ')}`);
+  job.addLog('PREFLIGHT', $t(`PDF ${doc.getPageCount()} Seite(n); Formate: ${Object.entries(sizes).map(([k, v]) => `${v}× ${k}${nameFromSize(...k.split(' × ').map(parseFloat)) ? ' (' + nameFromSize(...k.split(' × ').map(parseFloat)) + ')' : ''}`).join(', ')}`, `PDF ${doc.getPageCount()} page(s); sizes: ${Object.entries(sizes).map(([k, v]) => `${v}× ${k}${nameFromSize(...k.split(' × ').map(parseFloat)) ? ' (' + nameFromSize(...k.split(' × ').map(parseFloat)) + ')' : ''}`).join(', ')}`));
   const withTrim = info.filter((p) => p.hasTrim);
-  if (withTrim.length) job.addLog('PREFLIGHT', `${withTrim.length} Seite(n) mit TrimBox ≠ CropBox (Beschnittzugabe ${r1(pt2mm((withTrim[0].crop[2] - withTrim[0].crop[0] - (withTrim[0].trim[2] - withTrim[0].trim[0])) / 2))} mm je Seite)`);
+  if (withTrim.length) job.addLog('PREFLIGHT', $t(`${withTrim.length} Seite(n) mit TrimBox ≠ CropBox (Beschnittzugabe ${r1(pt2mm((withTrim[0].crop[2] - withTrim[0].crop[0] - (withTrim[0].trim[2] - withTrim[0].trim[0])) / 2))} mm je Seite)`, `${withTrim.length} page(s) with TrimBox ≠ CropBox (bleed ${r1(pt2mm((withTrim[0].crop[2] - withTrim[0].crop[0] - (withTrim[0].trim[2] - withTrim[0].trim[0])) / 2))} mm per side)`));
   const rotated = info.filter((p) => p.rotate);
-  if (rotated.length) job.addLog('PREFLIGHT', `${rotated.length} Seite(n) mit /Rotate (${Array.from(new Set(rotated.map((p) => p.rotate))).join('/')}°) – wird beim Ausschießen berücksichtigt`);
-  if (allSpots.size) job.addLog('PREFLIGHT', `Schmuckfarben gefunden: ${Array.from(allSpots).join(', ')}`);
-  else job.addLog('PREFLIGHT', 'Keine Schmuckfarben gefunden');
+  if (rotated.length) job.addLog('PREFLIGHT', $t(`${rotated.length} Seite(n) mit /Rotate (${Array.from(new Set(rotated.map((p) => p.rotate))).join('/')}°) – wird beim Ausschießen berücksichtigt`, `${rotated.length} page(s) with /Rotate (${Array.from(new Set(rotated.map((p) => p.rotate))).join('/')}°) – taken into account during imposition`));
+  if (allSpots.size) job.addLog('PREFLIGHT', $t(`Schmuckfarben gefunden: ${Array.from(allSpots).join(', ')}`, `Spot colours found: ${Array.from(allSpots).join(', ')}`));
+  else job.addLog('PREFLIGHT', $t('Keine Schmuckfarben gefunden', 'No spot colours found'));
   if (cutCount) {
-    const per = info.filter((p) => p.cuts.length).map((p) => `S.${p.index + 1}: ${p.cuts.map((c) => `${c.name} (${c.subpaths.length} Pfad${c.subpaths.length === 1 ? '' : 'e'}, als ${c.via})`).join(', ')}`);
-    job.addLog('PREFLIGHT', `Schneidkonturen erkannt (${names.join('/')}) → ${per.join('; ')}`);
+    const per = info.filter((p) => p.cuts.length).map((p) => `S.${p.index + 1}: ${p.cuts.map((c) => $t(`${c.name} (${c.subpaths.length} Pfad${c.subpaths.length === 1 ? '' : 'e'}, als ${c.via})`, `${c.name} (${c.subpaths.length} path${c.subpaths.length === 1 ? '' : 's'}, as ${c.via})`)).join(', ')}`);
+    job.addLog('PREFLIGHT', $t(`Schneidkonturen erkannt (${names.join('/')}) → ${per.join('; ')}`, `Cut contours detected (${names.join('/')}) → ${per.join('; ')}`));
   }
   return { doc, pages: info, spots: Array.from(allSpots), cutCount };
 }

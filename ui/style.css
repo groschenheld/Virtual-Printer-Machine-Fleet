@@ -157,3 +157,5 @@ dialog::backdrop { background: rgba(0,0,0,.35); }
   .viewer { grid-template-columns: 1fr; }
   .thumbs { flex-direction: row; overflow-x: auto; }
 }
+
+button.pulse{box-shadow:0 0 0 3px rgba(26,115,232,.35)}

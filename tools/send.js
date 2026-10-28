@@ -56,7 +56,7 @@ function parseAttr(s) {
     const url = opt('url', 'ipp://127.0.0.1:6310/ipp/print');
     const op = { 'attributes-charset': v.charset('utf-8'), 'attributes-natural-language': v.lang('de'), 'printer-uri': v.uri(url), 'requesting-user-name': v.name(process.env.USER || 'tester') };
     if (mode === 'status') {
-      const r = await ippRequest(url, 0x000b, { ...op, 'requested-attributes': [v.kw('printer-state'), v.kw('printer-state-reasons'), v.kw('media-ready'), v.kw('media-col-ready'), v.kw('marker-levels'), v.kw('finishings-supported')] });
+      const r = await ippRequest(url, 0x000b, { ...op, 'requested-attributes': [v.kw('printer-state'), v.kw('printer-state-reasons'), v.kw('media-ready'), v.kw('media-col-ready'), v.kw('marker-levels'), v.kw('finishings-supported'), v.kw('printer-input-tray')] });
       console.log(describe(r, false));
       return;
     }

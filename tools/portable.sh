@@ -63,7 +63,8 @@ EOF
   OUT="$ROOT/dist/$NAME-$VERSION-$TARGET.tar.gz"
 else
   printf '@echo off\r\nrem Virtual Print Fleet – Start mit mitgelieferter Node.js-Laufzeit\r\n"%%~dp0runtime\\node.exe" "%%~dp0src\\cli.js" %%*\r\n' > "$PKG/vpf.cmd"
-  printf '@echo off\r\n"%%~dp0runtime\\node.exe" "%%~dp0src\\cli.js" --open\r\n' > "$PKG/Virtual Print Fleet starten.cmd"
+  # Steuerzentrale (Start/Stopp, Drucker ein/aus, Druckerseiten) / control centre
+  printf '@echo off\r\nrem Virtual Print Fleet – Steuerzentrale / control centre\r\nstart "" /min "%%~dp0runtime\\node.exe" "%%~dp0src\\cli.js" control\r\n' > "$PKG/Virtual Print Fleet.cmd"
   ( cd "$WORK" && zip -qr "$ROOT/dist/$NAME-$VERSION-$TARGET.zip" "$NAME" )
   OUT="$ROOT/dist/$NAME-$VERSION-$TARGET.zip"
 fi

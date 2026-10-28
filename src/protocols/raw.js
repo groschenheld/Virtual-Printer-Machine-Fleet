@@ -1,5 +1,6 @@
 'use strict';
 // Socket-Druck (AppSocket/JetDirect, Port 9100) inkl. bidirektionaler PJL-Statusabfragen.
+const { $t, $tp, $lazy } = require('../i18n.js');
 const net = require('net');
 const { pjlInquiryResponse, unwrapPjl } = require('./pjl');
 const { listen } = require('./lpd');
@@ -36,14 +37,14 @@ function startRaw(fleet, dev, host, port) {
       const { pjl, payload } = unwrapPjl(data);
       const hasPayload = payload.length > 16 && payload.toString('latin1').trim().length > 0 && !/^@PJL/.test(payload.toString('latin1', 0, 4));
       if (!hasPayload) {
-        dev.trace('raw', 'in', `Socket ${port}: ${pjl ? pjl.commands.length + ' PJL-Befehle' : data.length + ' Bytes'} ohne Druckdaten von ${remote} (Statusabfrage)`, (answers.join('\n') || (pjl ? pjl.commands.join('\n') : hexdump(data, 256))), true);
+        dev.trace('raw', 'in', $t(`Socket ${port}: ${pjl ? pjl.commands.length + ' PJL-Befehle' : data.length + ' Bytes'} ohne Druckdaten von ${remote} (Statusabfrage)`, `Socket ${port}: ${pjl ? pjl.commands.length + ' PJL commands' : data.length + ' bytes'} without print data from ${remote} (status query)`), (answers.join('\n') || (pjl ? pjl.commands.join('\n') : hexdump(data, 256))), true);
         sock.end();
         return;
       }
       try {
         const job = fleet.createJob(dev.id, { name: null, user: null, source: { protocol: 'Socket 9100', remote, port } });
-        job.addProtocol('in', `Socket-Verbindung (AppSocket) von ${remote}, ${data.length} Bytes`, `Erste Bytes:\n${hexdump(data, 256)}${answers.length ? '\n\nBeantwortete PJL-Abfragen:\n' + answers.join('\n') : ''}`);
-        if (answers.length) job.addLog('PROTOKOLL', `${answers.length} PJL-Statusabfrage(n) beantwortet`);
+        job.addProtocol('in', $t(`Socket-Verbindung (AppSocket) von ${remote}, ${data.length} Bytes`, `Socket connection (AppSocket) from ${remote}, ${data.length} bytes`), $t(`Erste Bytes:\n${hexdump(data, 256)}${answers.length ? '\n\nBeantwortete PJL-Abfragen:\n' + answers.join('\n') : ''}`, `First bytes:\n${hexdump(data, 256)}${answers.length ? '\n\nAnswered PJL queries:\n' + answers.join('\n') : ''}`));
+        if (answers.length) job.addLog('PROTOKOLL', $t(`${answers.length} PJL-Statusabfrage(n) beantwortet`, `${answers.length} PJL status quer(y/ies) answered`));
         fleet.submit(job, data, {});
       } catch (e) { fleet.log(dev.id, 'error', `Socket: ${e.message}`); }
       sock.end();

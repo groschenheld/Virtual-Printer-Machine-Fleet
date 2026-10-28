@@ -65,3 +65,30 @@ test('Preflight erkennt CutContour/PerfCutContour als Schneidpfade', async () =>
   assert.ok(cuts.find((c) => c.kind === 'perf'));
   assert.ok(pf.pages[0].hasTrim);
 });
+
+test('i18n: Sprache umschalten, Standardnamen und Konstanten folgen / language switch', () => {
+  const os = require('os');
+  const i18n = require('../src/i18n');
+  const { Store } = require('../src/core/store');
+  const { Fleet } = require('../src/core/fleet');
+  const { MODULE_DE } = require('../src/frontends');
+  const old = i18n.getLang();
+  try {
+    const f = new Fleet(new Store(fs.mkdtempSync(path.join(os.tmpdir(), 'vpf-i18n-'))), { lang: 'de' });
+    i18n.setLang('de');
+    f.relabel();
+    const cw = f.devices.get('cw3800').cfg;
+    assert.equal(cw.slots[0].name, 'Rolle 1');
+    assert.equal(MODULE_DE.stapler, 'Hefter');
+    f.setLanguage('en');
+    assert.equal(cw.slots[0].name, 'Roll 1');
+    assert.equal(f.catalog.get('plain-80-a4').name, 'Plain paper 80 g A4');
+    assert.equal(MODULE_DE.stapler, 'Stapler');
+    assert.equal(i18n.$t('Ja', 'Yes'), 'Yes');
+    cw.slots[1].name = 'Meine Rolle';
+    f.setLanguage('de');
+    assert.equal(cw.slots[0].name, 'Rolle 1');
+    assert.equal(cw.slots[1].name, 'Meine Rolle', 'eigene Namen bleiben');
+    f._closed = true;
+  } finally { i18n.setLang(old); }
+});

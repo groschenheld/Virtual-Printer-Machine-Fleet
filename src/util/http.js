@@ -1,4 +1,5 @@
 'use strict';
+const { $t, $tp, $lazy } = require('../i18n.js');
 const fs = require('fs');
 const path = require('path');
 
@@ -16,7 +17,7 @@ function readBody(req, limit = 512 * 1024 * 1024) {
     let size = 0;
     req.on('data', (c) => {
       size += c.length;
-      if (size > limit) { reject(new Error('Body zu groß')); req.destroy(); return; }
+      if (size > limit) { reject(new Error($t('Body zu groß', 'Body too large'))); req.destroy(); return; }
       chunks.push(c);
     });
     req.on('end', () => resolve(Buffer.concat(chunks)));
@@ -38,7 +39,7 @@ function sendText(res, code, text, type = 'text/plain; charset=utf-8', headers =
 
 function sendFile(res, file, opts = {}) {
   fs.stat(file, (err, st) => {
-    if (err || !st.isFile()) return sendText(res, 404, 'Nicht gefunden');
+    if (err || !st.isFile()) return sendText(res, 404, $t('Nicht gefunden', 'Not found'));
     const type = MIME[path.extname(file).toLowerCase()] || 'application/octet-stream';
     const h = { 'Content-Type': type, 'Content-Length': st.size, 'Cache-Control': opts.cache ? 'max-age=3600' : 'no-store' };
     if (opts.download) h['Content-Disposition'] = `attachment; filename="${encodeURIComponent(opts.download)}"`;

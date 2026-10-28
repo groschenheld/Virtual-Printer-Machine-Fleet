@@ -1,19 +1,20 @@
 'use strict';
 // Laufzeit-Zustand eines simulierten Geräts: Warteschlange, Status/Fehler, Material, Verbrauch.
+const { $t, $tp, $lazy } = require('../i18n.js');
 const { frontendOf, queuesOf } = require('../frontends');
 const { processJob, Canceled } = require('../pipeline/pipeline');
 const { sleep } = require('../util/misc');
 
-const ERRORS = {
-  jam: { reason: 'media-jam-error', text: 'Papierstau', blocking: true },
-  cover: { reason: 'cover-open-error', text: 'Abdeckung offen', blocking: true },
+const ERRORS = $lazy({
+  jam: { reason: 'media-jam-error', text: $tp('Papierstau', 'Paper jam'), blocking: true },
+  cover: { reason: 'cover-open-error', text: $tp('Abdeckung offen', 'Cover open'), blocking: true },
   offline: { reason: 'offline-report', text: 'Offline', blocking: true },
-  staples: { reason: 'other-error', text: 'Heftklammern leer', blocking: false, finisher: true },
-  finisher: { reason: 'other-error', text: 'Finisher-Störung', blocking: true },
-  cutter: { reason: 'other-error', text: 'Schneidmesser-Fehler', blocking: true },
-  ink: { reason: 'marker-supply-low-warning', text: 'Tinte/Toner niedrig', blocking: false },
-  paused: { reason: 'paused', text: 'Angehalten (Bediener)', blocking: true },
-};
+  staples: { reason: 'other-error', text: $tp('Heftklammern leer', 'Staples empty'), blocking: false, finisher: true },
+  finisher: { reason: 'other-error', text: $tp('Finisher-Störung', 'Finisher fault'), blocking: true },
+  cutter: { reason: 'other-error', text: $tp('Schneidmesser-Fehler', 'Cutter blade error'), blocking: true },
+  ink: { reason: 'marker-supply-low-warning', text: $tp('Tinte/Toner niedrig', 'Ink/toner low'), blocking: false },
+  paused: { reason: 'paused', text: $tp('Angehalten (Bediener)', 'Paused (operator)'), blocking: true },
+});
 
 class Device {
   constructor(fleet, cfg) {
@@ -61,7 +62,7 @@ class Device {
     const blocking = Object.entries(this.errors).some(([k, on]) => on && ERRORS[k]?.blocking) || !!this.waitReason;
     const state = blocking ? 'stopped' : this.current ? 'processing' : 'idle';
     if (!reasons.length) reasons.push('none');
-    const stateDe = { idle: 'Bereit', processing: 'Druckt', stopped: 'Gestoppt' }[state];
+    const stateDe = { idle: $t('Bereit', 'Ready'), processing: $t('Druckt', 'Printing'), stopped: $t('Gestoppt', 'Stopped') }[state];
     return { state, stateDe, ipp: { idle: 3, processing: 4, stopped: 5 }[state], reasons, message: msg || stateDe, accepting: !this.errors.offline, current: this.current ? this.current.id : null };
   }
 
@@ -92,10 +93,10 @@ class Device {
   }
 
   setError(type, on) {
-    if (!ERRORS[type]) throw new Error(`Unbekannter Fehler ${type}`);
+    if (!ERRORS[type]) throw new Error($t(`Unbekannter Fehler ${type}`, `Unknown error ${type}`));
     this.errors[type] = !!on;
-    this.fleet.log(this.id, on ? 'warn' : 'info', `${ERRORS[type].text} ${on ? 'ausgelöst' : 'behoben'}`);
-    if (this.current) this.current.addLog('BEDIENER', `Gerätezustand: ${ERRORS[type].text} ${on ? 'ausgelöst' : 'behoben'}`);
+    this.fleet.log(this.id, on ? 'warn' : 'info', `${ERRORS[type].text} ${on ? $t('ausgelöst', 'triggered') : $t('behoben', 'cleared')}`);
+    if (this.current) this.current.addLog('BEDIENER', $t(`Gerätezustand: ${ERRORS[type].text} ${on ? 'ausgelöst' : 'behoben'}`, `Device state: ${ERRORS[type].text} ${on ? 'triggered' : 'cleared'}`));
     this.changed();
     if (!on) this.kick();
   }
@@ -108,11 +109,11 @@ class Device {
       const [k] = blocking()[0];
       const prev = job.state;
       job.setState('stopped', [ERRORS[k].reason, 'job-printing'], ERRORS[k].text);
-      job.warn('DRUCK', `Unterbrechung: ${ERRORS[k].text} – Druck pausiert`);
-      const r = await this.waitFor(job, () => blocking().length === 0, 'Fehler');
+      job.warn('DRUCK', $t(`Unterbrechung: ${ERRORS[k].text} – Druck pausiert`, `Interruption: ${ERRORS[k].text} – printing paused`));
+      const r = await this.waitFor(job, () => blocking().length === 0, $t('Fehler', 'Error'));
       if (r === 'canceled') throw new Canceled();
       job.setState(prev === 'stopped' ? 'printing' : prev, ['job-printing'], this.fe.stages.print);
-      job.addLog('BEDIENER', 'Störung behoben – Druck läuft weiter');
+      job.addLog('BEDIENER', $t('Störung behoben – Druck läuft weiter', 'Fault cleared – printing continues'));
     }
   }
 
@@ -135,7 +136,7 @@ class Device {
     for (const s of this.cfg.supplies || []) {
       const before = s.level;
       s.level = Math.max(0, Math.round((s.level - per * impressions * (0.6 + Math.random() * 0.8)) * 100) / 100);
-      if (before >= 10 && s.level < 10) { job.warn('DRUCK', `${s.name} unter 10 % – ${s.type === 'toner' ? 'Toner' : 'Tinte'} bereitlegen`); }
+      if (before >= 10 && s.level < 10) { job.warn('DRUCK', $t(`${s.name} unter 10 % – ${s.type === 'toner' ? $t('Toner', 'Toner') : $t('Tinte', 'Ink')} bereitlegen`, `${s.name} below 10 % – have ${s.type === 'toner' ? 'toner' : 'ink'} ready`)); }
     }
   }
 
@@ -146,37 +147,47 @@ class Device {
   // ------------------------------------------------ Material
   loadSlot(slotId, mediaId, level) {
     const slot = this.cfg.slots.find((s) => s.id === slotId);
-    if (!slot) throw new Error(`Fach/Rolle ${slotId} unbekannt`);
-    if (!mediaId) { slot.loaded = null; this.fleet.log(this.id, 'info', `${slot.name} entladen`); }
+    if (!slot) throw new Error($t(`Fach/Rolle ${slotId} unbekannt`, `Tray/roll ${slotId} unknown`));
+    if (!mediaId) { slot.loaded = null; this.fleet.log(this.id, 'info', $t(`${slot.name} entladen`, `${slot.name} unloaded`)); }
     else {
       const m = this.fleet.catalog.get(mediaId);
-      if (!m) throw new Error(`Material ${mediaId} unbekannt`);
-      if (m.kind !== slot.kind) throw new Error(`${m.name} ist ${m.kind === 'roll' ? 'Rollenware' : 'Bogenware'} – passt nicht in ${slot.name}`);
+      if (!m) throw new Error($t(`Material ${mediaId} unbekannt`, `Media ${mediaId} unknown`));
+      const why = this.mediaProblem(slot, m);
+      if (why) throw new Error(why);
       if (slot.kind === 'roll') {
-        const cap = this.cfg.roll || {};
-        if (cap.maxWidthMm && m.widthMm > cap.maxWidthMm) throw new Error(`Rollenbreite ${m.widthMm} mm > max. ${cap.maxWidthMm} mm`);
-        if (cap.minWidthMm && m.widthMm < cap.minWidthMm) throw new Error(`Rollenbreite ${m.widthMm} mm < min. ${cap.minWidthMm} mm`);
         slot.loaded = { mediaId, levelM: level != null && level !== '' ? Number(level) : m.lengthM };
       } else {
-        const sh = this.cfg.sheet || {};
-        const a = Math.min(m.widthMm, m.heightMm), b = Math.max(m.widthMm, m.heightMm);
-        if (sh.maxMm && (a > Math.min(...sh.maxMm) + 0.5 || b > Math.max(...sh.maxMm) + 0.5)) throw new Error(`${m.name}: Format zu groß für dieses Gerät (max. ${sh.maxMm.join(' × ')} mm)`);
-        if (sh.maxGsm && m.gsm > sh.maxGsm) throw new Error(`${m.gsm} g/m² über Maximum ${sh.maxGsm} g/m²`);
         slot.loaded = { mediaId, level: level != null && level !== '' ? Number(level) : slot.capacity };
       }
-      this.fleet.log(this.id, 'info', `${slot.name}: ${m.name} geladen (${slot.kind === 'roll' ? slot.loaded.levelM + ' m' : slot.loaded.level + ' Bogen'})`);
+      this.fleet.log(this.id, 'info', $t(`${slot.name}: ${m.name} geladen (${slot.kind === 'roll' ? slot.loaded.levelM + ' m' : slot.loaded.level + ' Bogen'})`, `${slot.name}: ${m.name} loaded (${slot.kind === 'roll' ? slot.loaded.levelM + ' m' : slot.loaded.level + ' sheets'})`));
     }
     this.mediaVersion++;
-    if (this.current) this.current.addLog('BEDIENER', `Material geändert: ${slot.name} → ${slot.loaded ? this.fleet.catalog.get(slot.loaded.mediaId).name : 'leer'}`);
+    if (this.current) this.current.addLog('BEDIENER', $t(`Material geändert: ${slot.name} → ${slot.loaded ? this.fleet.catalog.get(slot.loaded.mediaId).name : 'leer'}`, `Media changed: ${slot.name} → ${slot.loaded ? this.fleet.catalog.get(slot.loaded.mediaId).name : 'empty'}`));
     this.fleet.saveFleet();
     this.changed();
     this.kick();
     return slot;
   }
 
+  /** Grund, warum Material m nicht in slot passt (oder null). */
+  mediaProblem(slot, m) {
+    if (m.kind !== slot.kind) return $t(`${m.name} ist ${m.kind === 'roll' ? 'Rollenware' : 'Bogenware'} – passt nicht in ${slot.name}`, `${m.name} is ${m.kind === 'roll' ? 'roll media' : 'sheet media'} – does not fit ${slot.name}`);
+    if (slot.kind === 'roll') {
+      const cap = this.cfg.roll || {};
+      if (cap.maxWidthMm && m.widthMm > cap.maxWidthMm) return $t(`Rollenbreite ${m.widthMm} mm > max. ${cap.maxWidthMm} mm`, `Roll width ${m.widthMm} mm > max. ${cap.maxWidthMm} mm`);
+      if (cap.minWidthMm && m.widthMm < cap.minWidthMm) return $t(`Rollenbreite ${m.widthMm} mm < min. ${cap.minWidthMm} mm`, `Roll width ${m.widthMm} mm < min. ${cap.minWidthMm} mm`);
+      return null;
+    }
+    const sh = this.cfg.sheet || {};
+    const a = Math.min(m.widthMm, m.heightMm), b = Math.max(m.widthMm, m.heightMm);
+    if (sh.maxMm && (a > Math.min(...sh.maxMm) + 0.5 || b > Math.max(...sh.maxMm) + 0.5)) return $t(`${m.name}: Format zu groß für dieses Gerät (max. ${sh.maxMm.join(' × ')} mm)`, `${m.name}: size too large for this device (max. ${sh.maxMm.join(' × ')} mm)`);
+    if (sh.maxGsm && m.gsm > sh.maxGsm) return $t(`${m.gsm} g/m² über Maximum ${sh.maxGsm} g/m²`, `${m.gsm} g/m² above maximum ${sh.maxGsm} g/m²`);
+    return null;
+  }
+
   setLevel(slotId, level) {
     const slot = this.cfg.slots.find((s) => s.id === slotId);
-    if (!slot || !slot.loaded) throw new Error('Fach leer');
+    if (!slot || !slot.loaded) throw new Error($t('Fach leer', 'Tray empty'));
     if (slot.kind === 'roll') slot.loaded.levelM = Number(level); else slot.loaded.level = Math.min(Number(level), slot.capacity);
     this.mediaVersion++;
     this.fleet.saveFleet();
@@ -208,7 +219,7 @@ class Device {
         if (!next) break;
         this.current = next;
         this.changed();
-        try { await processJob(this, next); } catch (e) { next.error('STATUS', 'Interner Fehler: ' + e.message, e.stack); next.setState('aborted', ['aborted-by-system'], e.message); }
+        try { await processJob(this, next); } catch (e) { next.error('STATUS', $t('Interner Fehler: ', 'Internal error: ') + e.message, e.stack); next.setState('aborted', ['aborted-by-system'], e.message); }
         this.current = null;
         this.fleet.onJobFinishedProcessing(next);
         this.changed();

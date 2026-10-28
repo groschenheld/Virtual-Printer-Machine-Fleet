@@ -2,6 +2,7 @@
 // Bonjour / mDNS / DNS-SD (RFC 6762/6763): kündigt jedes Gerät im Netz an, so wie echte
 // Drucker und Front-Ends es tun – als _ipp._tcp (IPP), _printer._tcp (LPD) und _pdl-datastream._tcp (Socket 9100).
 // Ohne externe Abhängigkeiten; beantwortet auch gezielte Anfragen (Browse/Resolve).
+const { $t, $tp, $lazy } = require('../i18n.js');
 const dgram = require('dgram');
 const os = require('os');
 const crypto = require('crypto');
@@ -114,16 +115,18 @@ class MdnsResponder {
       const uuid = (() => { const h = crypto.createHash('sha1').update('vpf-' + c.id).digest('hex'); return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-a${h.slice(17, 20)}-${h.slice(20, 32)}`; })();
       const mods = require('../frontends').installedModules(c);
       const kind = { sheet: 'document', wide: 'document,large-format,roll', photo: 'photo,roll', printcut: 'large-format,roll,label' }[c.kind];
-      const common = { txtvers: 1, qtotal: 1, ty: `${c.vendor} ${c.model}`, product: `(${c.model})`, note: 'Virtual Print Fleet (Simulation)', priority: 50, usb_MFG: c.vendor, usb_MDL: c.model, UUID: uuid, adminurl: `http://${ips[0]}:${c.ports.http}/` };
+      const common = { txtvers: 1, qtotal: 1, ty: `${c.vendor} ${c.model}`, product: `(${c.model})`, note: 'Virtual Print Fleet (Simulation)', priority: 50, usb_MFG: c.vendor, usb_MDL: c.model, UUID: uuid, adminurl: s.endpoints.web };
+      const devHost = s.addressing === 'ip' ? `vpf-${c.id.replace(/[^A-Za-z0-9-]/g, '-')}.local` : host;
+      if (s.addressing === 'ip') recs.push(a(devHost, c.ip, 120));
       const add = (svc, port, extra) => {
         const type = `${svc}.local`;
         const name = `${inst}.${type}`;
         services.add(type);
-        recs.push(ptr(type, name, ttl), srv(name, port, host, 120), txt(name, { ...common, ...extra }, ttl));
+        recs.push(ptr(type, name, ttl), srv(name, port, devHost, 120), txt(name, { ...common, ...extra }, ttl));
       };
-      add('_ipp._tcp', c.ports.http, { rp: 'ipp/print', pdl: 'application/pdf,image/pwg-raster,image/jpeg,image/png,application/postscript', Color: c.color ? 'T' : 'F', Duplex: c.duplex ? 'T' : 'F', Staple: mods.stapler ? 'T' : 'F', Punch: mods.puncher ? 'T' : 'F', Bind: mods.booklet ? 'T' : 'F', Fold: mods.folder || mods.wfFolder ? 'T' : 'F', Sort: 'T', kind, 'printer-type': '0x' + (0x900e | (c.color ? 0x8 : 0) | (c.duplex ? 0x10 : 0) | (mods.stapler ? 0x80 : 0) | (mods.puncher ? 0x100 : 0)).toString(16), TLS: undefined, URF: undefined, mopria_certified: undefined });
-      add('_printer._tcp', c.ports.lpd, { rp: s.queues[0]?.name || 'print', pdl: 'application/pdf,application/postscript' });
-      add('_pdl-datastream._tcp', c.ports.raw, { pdl: 'application/pdf,application/postscript,application/vnd.hp-PCL' });
+      add('_ipp._tcp', s.ports.http, { rp: 'ipp/print', pdl: 'application/pdf,image/pwg-raster,image/jpeg,image/png,application/postscript', Color: c.color ? 'T' : 'F', Duplex: c.duplex ? 'T' : 'F', Staple: mods.stapler ? 'T' : 'F', Punch: mods.puncher ? 'T' : 'F', Bind: mods.booklet ? 'T' : 'F', Fold: mods.folder || mods.wfFolder ? 'T' : 'F', Sort: 'T', kind, 'printer-type': '0x' + (0x900e | (c.color ? 0x8 : 0) | (c.duplex ? 0x10 : 0) | (mods.stapler ? 0x80 : 0) | (mods.puncher ? 0x100 : 0)).toString(16), TLS: undefined, URF: undefined, mopria_certified: undefined });
+      add('_printer._tcp', s.ports.lpd, { rp: s.queues[0]?.name || 'print', pdl: 'application/pdf,application/postscript' });
+      add('_pdl-datastream._tcp', s.ports.raw, { pdl: 'application/pdf,application/postscript,application/vnd.hp-PCL' });
     }
     for (const type of services) recs.push(ptr('_services._dns-sd._udp.local', type, ttl));
     for (const ip of ips) recs.push(a(host, ip, 120));
@@ -134,10 +137,10 @@ class MdnsResponder {
   }
 
   start() {
-    if (this.fleet.settings.mdns === false) { this.status = { ...this.status, active: false, error: 'deaktiviert' }; return; }
+    if (this.fleet.settings.mdns === false) { this.status = { ...this.status, active: false, error: $t('deaktiviert', 'disabled') }; return; }
     try {
       this.sock = dgram.createSocket({ type: 'udp4', reuseAddr: true });
-      this.sock.on('error', (e) => { this.status.error = e.message; this.status.active = false; this.fleet.log(null, 'warn', `Bonjour/mDNS nicht verfügbar: ${e.message}`); try { this.sock.close(); } catch { /* */ } this.sock = null; });
+      this.sock.on('error', (e) => { this.status.error = e.message; this.status.active = false; this.fleet.log(null, 'warn', $t(`Bonjour/mDNS nicht verfügbar: ${e.message}`, `Bonjour/mDNS not available: ${e.message}`)); try { this.sock.close(); } catch { /* */ } this.sock = null; });
       this.sock.on('message', (msg, rinfo) => this.onQuery(msg, rinfo));
       this.sock.bind(MDNS_PORT, () => {
         try { this.sock.setMulticastTTL(255); this.sock.setMulticastLoopback(true); } catch { /* */ }
@@ -167,8 +170,8 @@ class MdnsResponder {
       if (++n < 3) this.timer = setTimeout(send, 1000 * n);
     };
     send();
-    const loopNote = this.status.addresses.every((x) => x.startsWith('127.')) ? ' – nur Adresse 127.0.0.1: Andere Rechner können die Geräte nicht erreichen; für Netzwerksuche „Geräte im Netzwerk erreichbar" (0.0.0.0) wählen' : '';
-    this.fleet.log(null, 'info', `Bonjour/mDNS: ${this.status.services} Dienste angekündigt als ${this.hostName()} (${this.status.addresses.join(', ')})${loopNote}`);
+    const loopNote = this.status.addresses.every((x) => x.startsWith('127.')) ? $t(' – nur Adresse 127.0.0.1: Andere Rechner können die Geräte nicht erreichen; für Netzwerksuche „Geräte im Netzwerk erreichbar" (0.0.0.0) wählen', ' – address 127.0.0.1 only: other computers cannot reach the devices; for network discovery choose “Devices reachable on the network” (0.0.0.0)') : '';
+    this.fleet.log(null, 'info', $t(`Bonjour/mDNS: ${this.status.services} Dienste angekündigt als ${this.hostName()} (${this.status.addresses.join(', ')})${loopNote}`, `Bonjour/mDNS: ${this.status.services} services announced as ${this.hostName()} (${this.status.addresses.join(', ')})${loopNote}`));
   }
 
   sendAll(recs, ttlZero = false) {
@@ -229,7 +232,7 @@ class MdnsResponder {
       if (unicast) this.send(buf, rinfo.port, rinfo.address); else this.send(buf);
     });
     const what = q.questions.map((x) => x.name).join(', ');
-    for (const d of this.fleet.devices.values()) if (what.includes(d.cfg.name.toLowerCase().slice(0, 20)) || /_ipp|_printer|_pdl/.test(what)) { d.trace('mdns', 'in', `Bonjour-Anfrage ${what} von ${rinfo.address}`, '', true); break; }
+    for (const d of this.fleet.devices.values()) if (what.includes(d.cfg.name.toLowerCase().slice(0, 20)) || /_ipp|_printer|_pdl/.test(what)) { d.trace('mdns', 'in', $t(`Bonjour-Anfrage ${what} von ${rinfo.address}`, `Bonjour query ${what} from ${rinfo.address}`), '', true); break; }
   }
 
   async stop() {

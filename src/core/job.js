@@ -1,19 +1,20 @@
 'use strict';
+const { $t, $tp, $lazy } = require('../i18n.js');
 const fs = require('fs');
 const path = require('path');
 
-const PHASES = {
-  EMPFANG: 'Empfang', PROTOKOLL: 'Protokoll', ANTWORT: 'Antwort', TICKET: 'Ticket', FORMAT: 'Format', PREFLIGHT: 'Preflight',
-  MATERIAL: 'Material', RIP: 'RIP', AUSSCHUSS: 'Ausschießen', FINISHING: 'Finishing', DRUCK: 'Druck', SCHNITT: 'Schnitt',
-  STATUS: 'Status', AUSGABE: 'Ausgabe', BEDIENER: 'Bediener',
-};
+const PHASES = $lazy({
+  EMPFANG: $tp('Empfang', 'Receive'), PROTOKOLL: $tp('Protokoll', 'Protocol'), ANTWORT: $tp('Antwort', 'Response'), TICKET: 'Ticket', FORMAT: 'Format', PREFLIGHT: 'Preflight',
+  MATERIAL: $tp('Material', 'Media'), RIP: 'RIP', AUSSCHUSS: $tp('Ausschießen', 'Imposition'), FINISHING: 'Finishing', DRUCK: $tp('Druck', 'Print'), SCHNITT: $tp('Schnitt', 'Cut'),
+  STATUS: 'Status', AUSGABE: $tp('Ausgabe', 'Output'), BEDIENER: $tp('Bediener', 'Operator'),
+});
 
 // Interne Zustände -> IPP job-state
 const IPP_STATE = { receiving: 3, pending: 3, held: 4, processing: 5, waiting: 6, printing: 5, stopped: 6, canceled: 7, aborted: 8, completed: 9 };
-const STATE_DE = {
-  receiving: 'Empfang', pending: 'Wartet', held: 'Angehalten', processing: 'Verarbeitung', waiting: 'Wartet auf Material',
-  printing: 'Druckt', stopped: 'Unterbrochen', canceled: 'Abgebrochen', aborted: 'Fehler', completed: 'Fertig',
-};
+const STATE_DE = $lazy({
+  receiving: $tp('Empfang', 'Receiving'), pending: $tp('Wartet', 'Waiting'), held: $tp('Angehalten', 'Held'), processing: $tp('Verarbeitung', 'Processing'), waiting: $tp('Wartet auf Material', 'Waiting for media'),
+  printing: $tp('Druckt', 'Printing'), stopped: $tp('Unterbrochen', 'Interrupted'), canceled: $tp('Abgebrochen', 'Cancelled'), aborted: $tp('Fehler', 'Error'), completed: $tp('Fertig', 'Done'),
+});
 const FINAL = new Set(['canceled', 'aborted', 'completed']);
 
 class Job {
@@ -22,7 +23,7 @@ class Job {
     this.deviceId = deviceId;
     this.dir = dir;
     this.name = init.name || `Job ${id}`;
-    this.user = init.user || 'unbekannt';
+    this.user = init.user || $t('unbekannt', 'unknown');
     this.source = init.source || { protocol: 'ui' };
     this.state = 'receiving';
     this.stateReasons = ['job-incoming'];
@@ -62,7 +63,7 @@ class Job {
     if (message !== undefined) this.stateMessage = message;
     this.updated = new Date().toISOString();
     if (FINAL.has(state)) this.completedAt = this.updated;
-    if (prev !== state) this.addLog('STATUS', `Job-Status: ${STATE_DE[prev] || prev} → ${STATE_DE[state] || state}` + (this.stateReasons.length ? ` [${this.stateReasons.join(', ')}]` : '') + (message ? ` – ${message}` : ''));
+    if (prev !== state) this.addLog('STATUS', `${$t('Job-Status', 'Job status')}: ${STATE_DE[prev] || prev} → ${STATE_DE[state] || state}` + (this.stateReasons.length ? ` [${this.stateReasons.join(', ')}]` : '') + (message ? ` – ${message}` : ''));
     this._emit('state', { prev, state });
     this.save();
   }
@@ -111,15 +112,15 @@ class Job {
 
   logText() {
     const head = [
-      `Virtual Print Fleet – Job-Protokoll`,
-      `Job ${this.id} „${this.name}" auf Gerät ${this.deviceId}`,
-      `Eingang: ${this.source.protocol}${this.source.queue ? ' / Warteschlange ' + this.source.queue : ''}${this.source.remote ? ' von ' + this.source.remote : ''}`,
+      $t(`Virtual Print Fleet – Job-Protokoll`, `Virtual Print Fleet – job log`),
+      $t(`Job ${this.id} „${this.name}" auf Gerät ${this.deviceId}`, `Job ${this.id} “${this.name}” on device ${this.deviceId}`),
+      $t(`Eingang: ${this.source.protocol}${this.source.queue ? ' / Warteschlange ' + this.source.queue : ''}${this.source.remote ? ' von ' + this.source.remote : ''}`, `Input: ${this.source.protocol}${this.source.queue ? ' / queue ' + this.source.queue : ''}${this.source.remote ? ' from ' + this.source.remote : ''}`),
       `Status: ${this.stateText}${this.stateMessage ? ' – ' + this.stateMessage : ''}`,
-      `Simulierte Gesamtdauer: ${fmtSim(this.simMs)}`,
+      $t(`Simulierte Gesamtdauer: ${fmtSim(this.simMs)}`, `Simulated total time: ${fmtSim(this.simMs)}`),
       '='.repeat(100),
     ];
     const lines = this.log.map((e) => {
-      const lvl = e.level === 'warn' ? 'WARNUNG ' : e.level === 'error' ? 'FEHLER  ' : '';
+      const lvl = e.level === 'warn' ? $t('WARNUNG ', 'WARNING ') : e.level === 'error' ? $t('FEHLER  ', 'ERROR   ') : '';
       let s = `${e.ts.replace('T', ' ').replace('Z', '')}  [+${fmtSim(e.sim)}]  ${e.phase.padEnd(12)} ${lvl}${e.msg}`;
       if (e.data !== undefined && e.data !== null) {
         const d = typeof e.data === 'string' ? e.data : Array.isArray(e.data) && e.data.length && typeof e.data[0] === 'object' ? table(e.data) : JSON.stringify(e.data, null, 2);
@@ -131,7 +132,7 @@ class Job {
   }
 
   protocolText() {
-    return this.protocol.map((p) => `${'-'.repeat(100)}\n${p.ts}  ${p.direction === 'in' ? '>>> EINGANG' : '<<< ANTWORT'}  ${p.title}\n${'-'.repeat(100)}\n${p.text}\n`).join('\n');
+    return this.protocol.map((p) => `${'-'.repeat(100)}\n${p.ts}  ${p.direction === 'in' ? $t('>>> EINGANG', '>>> INPUT') : '<<< ANTWORT'}  ${p.title}\n${'-'.repeat(100)}\n${p.text}\n`).join('\n');
   }
 
   static load(dir, data) {
@@ -145,12 +146,14 @@ class Job {
   }
 }
 
+const COL_EN = { fach: 'tray', rolle: 'roll', material: 'media', bestand: 'stock', breite: 'width', rest_m: 'remaining_m', passt: 'fits', grund: 'reason' };
 function table(rows) {
   const keys = Object.keys(rows[0]);
-  const cell = (v) => (v === true ? 'ja' : v === false ? 'nein' : v == null ? '' : String(v));
+  const cell = (v) => (v === true ? $t('ja', 'yes') : v === false ? $t('nein', 'no') : v == null ? '' : String(v));
+  const head = (k) => $t(k, COL_EN[k] || k).toUpperCase();
   const w = keys.map((k) => Math.min(48, Math.max(k.length, ...rows.map((r) => cell(r[k]).length))));
   const line = (vals) => vals.map((v, i) => v.slice(0, 48).padEnd(w[i])).join('  ');
-  return [line(keys.map((k) => k.toUpperCase())), line(w.map((n) => '-'.repeat(n))), ...rows.map((r) => line(keys.map((k) => cell(r[k]))))].join('\n');
+  return [line(keys.map(head)), line(w.map((n) => '-'.repeat(n))), ...rows.map((r) => line(keys.map((k) => cell(r[k]))))].join('\n');
 }
 
 function fmtSim(ms) {
